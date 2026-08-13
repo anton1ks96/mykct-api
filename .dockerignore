@@ -1,0 +1,7 @@
+.env
+.env.example
+.idea
+.git
+docker-compose*.yml
+Dockerfile
+README.md
