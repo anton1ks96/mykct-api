@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/anton1ks96/mykct-api/internal/platform/config"
+	"github.com/anton1ks96/mykct-api/internal/platform/httpapi"
 	"github.com/anton1ks96/mykct-api/internal/platform/router/middleware"
 	"github.com/gin-gonic/gin"
 )
@@ -33,6 +34,10 @@ func (r *Router) InitRoutes() (*gin.Engine, error) {
 		return nil, fmt.Errorf("invalid TRUSTED_PROXIES: %w", err)
 	}
 
+	router.HandleMethodNotAllowed = true
+	router.NoRoute(notFound)
+	router.NoMethod(methodNotAllowed)
+
 	router.Use(
 		middleware.Recovery(),
 		middleware.Logging(),
@@ -56,4 +61,20 @@ func (r *Router) InitRoutes() (*gin.Engine, error) {
 // ping проверяет доступность сервиса.
 func (r *Router) ping(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// notFound отвечает на неизвестный маршрут в общем формате ошибок.
+func notFound(c *gin.Context) {
+	c.JSON(http.StatusNotFound, httpapi.NewErrorf(
+		httpapi.CodeNotFound,
+		"Маршрут %s %s не найден", c.Request.Method, c.Request.URL.Path,
+	))
+}
+
+// methodNotAllowed отвечает, когда маршрут есть, но метод другой.
+func methodNotAllowed(c *gin.Context) {
+	c.JSON(http.StatusMethodNotAllowed, httpapi.NewErrorf(
+		httpapi.CodeMethodNotAllowed,
+		"Метод %s не поддерживается для %s", c.Request.Method, c.Request.URL.Path,
+	))
 }

@@ -51,10 +51,7 @@ func Recovery() gin.HandlerFunc {
 					Str("path", c.Request.URL.Path).
 					Msg("panic recovered")
 
-				c.AbortWithStatusJSON(http.StatusInternalServerError, httpapi.APIError{
-					Code:    http.StatusInternalServerError,
-					Message: "internal server error",
-				})
+				c.AbortWithStatusJSON(http.StatusInternalServerError, httpapi.InternalError())
 			}
 		}()
 		c.Next()
