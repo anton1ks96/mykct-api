@@ -26,6 +26,8 @@ type (
 		Mongo     MongoConfig
 		CORS      CORSConfig
 		RateLimit RateLimitConfig
+		Auth      AuthConfig
+		LDAP      LDAPConfig
 	}
 
 	// ServiceConfig содержит общие настройки сервиса.
@@ -81,6 +83,25 @@ type (
 		IPRate        int // Запросов за окно с одного IP
 		IPBurst       int // Размер всплеска
 		WindowSeconds int // Длина окна в секундах
+	}
+
+	// AuthConfig содержит настройки аутентификации и выпуска токенов.
+	AuthConfig struct {
+		JWTSigningKey   string        // Ключ подписи access-токенов (HS256)
+		AccessTokenTTL  time.Duration // Время жизни access-токена
+		RefreshTokenTTL time.Duration // Время жизни refresh-сессии
+		TestMode        bool          // Заглушка вместо похода в LDAP, только для разработки
+	}
+
+	// LDAPConfig содержит настройки каталога LDAP колледжа.
+	LDAPConfig struct {
+		URL              string        // Адрес сервера: ldap://host:389
+		BaseDN           string        // Корень дерева: dc=it-college,dc=ru
+		StudentsBaseDN   string        // Ветка студентов, собирается из OU и BaseDN
+		TeachersBaseDN   string        // Ветка преподавателей
+		GroupsBaseDN     string        // Ветка учебных групп, профилей и подгрупп
+		TeacherUIDPrefix string        // Префикс uid преподавателя, остальные - студенты
+		Timeout          time.Duration // Таймаут соединения и запросов к каталогу
 	}
 )
 
@@ -172,6 +193,36 @@ func setFromEnv(cfg *Config) error {
 	cfg.RateLimit.IPBurst = getEnvAsInt("RATE_LIMIT_IP_BURST", 200)
 	cfg.RateLimit.WindowSeconds = getEnvAsInt("RATE_LIMIT_WINDOW_SECONDS", 60)
 
+	// Auth
+	cfg.Auth.JWTSigningKey, err = getRequiredEnv("AUTH_JWT_SIGNING_KEY")
+	if err != nil {
+		return err
+	}
+	cfg.Auth.AccessTokenTTL, err = getEnvAsDuration("AUTH_ACCESS_TOKEN_TTL", time.Hour)
+	if err != nil {
+		return fmt.Errorf("invalid AUTH_ACCESS_TOKEN_TTL: %w", err)
+	}
+	cfg.Auth.RefreshTokenTTL, err = getEnvAsDuration("AUTH_REFRESH_TOKEN_TTL", 720*time.Hour)
+	if err != nil {
+		return fmt.Errorf("invalid AUTH_REFRESH_TOKEN_TTL: %w", err)
+	}
+	cfg.Auth.TestMode = getEnvAsBool("AUTH_TEST_MODE", false)
+
+	// LDAP. В тестовом режиме каталог не нужен, поэтому URL обязателен только без него
+	cfg.LDAP.URL = os.Getenv("LDAP_URL")
+	if cfg.LDAP.URL == "" && !cfg.Auth.TestMode {
+		return fmt.Errorf("environment variable LDAP_URL is required unless AUTH_TEST_MODE=true")
+	}
+	cfg.LDAP.BaseDN = getEnvOrDefault("LDAP_BASE_DN", "dc=it-college,dc=ru")
+	cfg.LDAP.StudentsBaseDN = joinDN(getEnvOrDefault("LDAP_STUDENTS_OU", "ou=people"), cfg.LDAP.BaseDN)
+	cfg.LDAP.TeachersBaseDN = joinDN(getEnvOrDefault("LDAP_TEACHERS_OU", "ou=people,ou=Teachers"), cfg.LDAP.BaseDN)
+	cfg.LDAP.GroupsBaseDN = joinDN(getEnvOrDefault("LDAP_GROUPS_OU", "ou=Current"), cfg.LDAP.BaseDN)
+	cfg.LDAP.TeacherUIDPrefix = getEnvOrDefault("LDAP_TEACHER_UID_PREFIX", "t")
+	cfg.LDAP.Timeout, err = getEnvAsDuration("LDAP_TIMEOUT", 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("invalid LDAP_TIMEOUT: %w", err)
+	}
+
 	return nil
 }
 
@@ -251,6 +302,15 @@ func getEnvAsSlice(key string, defaultValue []string) []string {
 		return defaultValue
 	}
 	return splitAndTrim(value)
+}
+
+// joinDN приклеивает ветку к корню дерева: "ou=people" + "dc=a,dc=b".
+func joinDN(ou, baseDN string) string {
+	ou = strings.Trim(strings.TrimSpace(ou), ",")
+	if ou == "" {
+		return baseDN
+	}
+	return ou + "," + baseDN
 }
 
 // splitAndTrim разбирает строку "a, b, c" в список непустых значений.
