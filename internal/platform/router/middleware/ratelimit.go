@@ -96,16 +96,16 @@ func (rl *RateLimiter) LimitByIP() gin.HandlerFunc {
 
 		limiter := rl.getVisitor("rl:ip:"+c.ClientIP(), rl.ipRate, rl.ipBurst)
 
-		if !rl.allow(c, limiter) {
+		if retryAfter, ok := rl.allow(c, limiter); !ok {
 			rateLimitLog.Warn().
 				Str("client_ip", c.ClientIP()).
 				Str("path", c.Request.URL.Path).
 				Msg("IP rate limit exceeded")
 
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, httpapi.APIError{
-				Code:    http.StatusTooManyRequests,
-				Message: "rate limit exceeded",
-			})
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, httpapi.NewErrorf(
+				httpapi.CodeRateLimitExceeded,
+				"Слишком много запросов, повторите через %d с", retryAfter,
+			))
 			return
 		}
 
@@ -125,17 +125,17 @@ func (rl *RateLimiter) Limit(rateN, burst int) gin.HandlerFunc {
 
 		limiter := rl.getVisitor("rl:"+c.Request.URL.Path+":"+identifier, rateN, burst)
 
-		if !rl.allow(c, limiter) {
+		if retryAfter, ok := rl.allow(c, limiter); !ok {
 			rateLimitLog.Warn().
 				Str("identifier", identifier).
 				Str("path", c.Request.URL.Path).
 				Int("rate", rateN).
 				Msg("endpoint rate limit exceeded")
 
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, httpapi.APIError{
-				Code:    http.StatusTooManyRequests,
-				Message: "rate limit exceeded",
-			})
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, httpapi.NewErrorf(
+				httpapi.CodeRateLimitExceeded,
+				"Слишком много запросов, повторите через %d с", retryAfter,
+			))
 			return
 		}
 
@@ -167,8 +167,9 @@ func (rl *RateLimiter) getVisitor(key string, rateN, burst int) *rate.Limiter {
 	return v.limiter
 }
 
-// allow проверяет лимит и выставляет заголовки; при превышении - Retry-After.
-func (rl *RateLimiter) allow(c *gin.Context, limiter *rate.Limiter) bool {
+// allow проверяет лимит и выставляет заголовки; при превышении возвращает
+// количество секунд до следующей попытки.
+func (rl *RateLimiter) allow(c *gin.Context, limiter *rate.Limiter) (int, bool) {
 	res := limiter.Reserve()
 	if !res.OK() || res.Delay() > 0 {
 		if res.OK() {
@@ -182,12 +183,12 @@ func (rl *RateLimiter) allow(c *gin.Context, limiter *rate.Limiter) bool {
 		c.Header("Retry-After", strconv.Itoa(retryAfter))
 		rl.setHeaders(c, limiter)
 
-		return false
+		return retryAfter, false
 	}
 
 	rl.setHeaders(c, limiter)
 
-	return true
+	return 0, true
 }
 
 // setHeaders выставляет заголовки X-RateLimit-*.
