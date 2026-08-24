@@ -10,6 +10,10 @@ import (
 	"sync"
 	"syscall"
 
+	authhandler "github.com/anton1ks96/mykct-api/internal/auth/handler"
+	authldap "github.com/anton1ks96/mykct-api/internal/auth/repository/ldap"
+	authmongo "github.com/anton1ks96/mykct-api/internal/auth/repository/mongo"
+	authservice "github.com/anton1ks96/mykct-api/internal/auth/service"
 	"github.com/anton1ks96/mykct-api/internal/platform/config"
 	"github.com/anton1ks96/mykct-api/internal/platform/router"
 	"github.com/anton1ks96/mykct-api/internal/platform/router/middleware"
@@ -61,16 +65,26 @@ func main() {
 	}
 	defer mongodb.Close(context.Background(), mongoClient)
 
-	if err := mongodb.EnsureAll(context.Background()); err != nil {
-		logger.Fatal().Err(err).Msg("failed to ensure MongoDB indexes")
-	}
-
 	// Rate limiter
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimit)
 	defer rateLimiter.Close()
 
+	// Модуль аутентификации
+	if cfg.Auth.TestMode {
+		logger.Warn().Msg("AUTH_TEST_MODE is enabled, LDAP is bypassed with a stub user")
+	}
+
+	authSessions := authmongo.NewSessionRepository(mongoClient, cfg.Mongo.Database)
+	authDirectory := authldap.NewDirectory(cfg.LDAP)
+	authSvc := authservice.NewService(authDirectory, authSessions, cfg.Auth)
+	authAPI := authhandler.NewHandler(authSvc, rateLimiter)
+
+	if err := mongodb.EnsureAll(context.Background(), authSessions); err != nil {
+		logger.Fatal().Err(err).Msg("failed to ensure MongoDB indexes")
+	}
+
 	// Роутер и сервер
-	r := router.NewRouter(cfg, rateLimiter)
+	r := router.NewRouter(cfg, rateLimiter, authAPI)
 
 	engine, err := r.InitRoutes()
 	if err != nil {
