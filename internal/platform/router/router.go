@@ -12,17 +12,24 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Module - бизнес-модуль, регистрирующий свои маршруты в группе /api/v1.
+type Module interface {
+	Init(v1 *gin.RouterGroup)
+}
+
 // Router собирает gin.Engine с глобальными middleware и маршрутами модулей.
 type Router struct {
 	cfg         *config.Config
 	rateLimiter *middleware.RateLimiter
+	modules     []Module
 }
 
-// NewRouter создаёт новый экземпляр роутера.
-func NewRouter(cfg *config.Config, rateLimiter *middleware.RateLimiter) *Router {
+// NewRouter создаёт новый экземпляр роутера с маршрутами переданных модулей.
+func NewRouter(cfg *config.Config, rateLimiter *middleware.RateLimiter, modules ...Module) *Router {
 	return &Router{
 		cfg:         cfg,
 		rateLimiter: rateLimiter,
+		modules:     modules,
 	}
 }
 
@@ -51,7 +58,9 @@ func (r *Router) InitRoutes() (*gin.Engine, error) {
 
 		v1 := api.Group("/v1")
 		{
-			_ = v1
+			for _, module := range r.modules {
+				module.Init(v1)
+			}
 		}
 	}
 
