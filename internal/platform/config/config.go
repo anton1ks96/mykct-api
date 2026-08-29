@@ -28,6 +28,7 @@ type (
 		RateLimit RateLimitConfig
 		Auth      AuthConfig
 		LDAP      LDAPConfig
+		Schedule  ScheduleConfig
 	}
 
 	// ServiceConfig содержит общие настройки сервиса.
@@ -102,6 +103,13 @@ type (
 		GroupsBaseDN     string        // Ветка учебных групп, профилей и подгрупп
 		TeacherUIDPrefix string        // Префикс uid преподавателя, остальные - студенты
 		Timeout          time.Duration // Таймаут соединения и запросов к каталогу
+	}
+
+	// ScheduleConfig содержит настройки портала колледжа и кэша расписания.
+	ScheduleConfig struct {
+		PortalURL     string        // Базовый адрес портала: https://portal.students.it-college.ru
+		PortalTimeout time.Duration // Таймаут запроса к порталу, без него не сработает откат на кэш
+		CacheTTL      time.Duration // Сколько снимок расписания хранится в MongoDB
 	}
 )
 
@@ -221,6 +229,20 @@ func setFromEnv(cfg *Config) error {
 	cfg.LDAP.Timeout, err = getEnvAsDuration("LDAP_TIMEOUT", 5*time.Second)
 	if err != nil {
 		return fmt.Errorf("invalid LDAP_TIMEOUT: %w", err)
+	}
+
+	// Расписание
+	cfg.Schedule.PortalURL, err = getRequiredEnv("SCHEDULE_PORTAL_URL")
+	if err != nil {
+		return err
+	}
+	cfg.Schedule.PortalTimeout, err = getEnvAsDuration("SCHEDULE_PORTAL_TIMEOUT", 15*time.Second)
+	if err != nil {
+		return fmt.Errorf("invalid SCHEDULE_PORTAL_TIMEOUT: %w", err)
+	}
+	cfg.Schedule.CacheTTL, err = getEnvAsDuration("SCHEDULE_CACHE_TTL", 720*time.Hour)
+	if err != nil {
+		return fmt.Errorf("invalid SCHEDULE_CACHE_TTL: %w", err)
 	}
 
 	return nil
