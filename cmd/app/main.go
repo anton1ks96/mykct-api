@@ -17,6 +17,10 @@ import (
 	"github.com/anton1ks96/mykct-api/internal/platform/config"
 	"github.com/anton1ks96/mykct-api/internal/platform/router"
 	"github.com/anton1ks96/mykct-api/internal/platform/router/middleware"
+	schedulehandler "github.com/anton1ks96/mykct-api/internal/schedule/handler"
+	schedulemongo "github.com/anton1ks96/mykct-api/internal/schedule/repository/mongo"
+	scheduleportal "github.com/anton1ks96/mykct-api/internal/schedule/repository/portal"
+	scheduleservice "github.com/anton1ks96/mykct-api/internal/schedule/service"
 	"github.com/anton1ks96/mykct-api/internal/server"
 	"github.com/anton1ks96/mykct-api/pkg/database/mongodb"
 	"github.com/anton1ks96/mykct-api/pkg/logger"
@@ -79,12 +83,18 @@ func main() {
 	authSvc := authservice.NewService(authDirectory, authSessions, cfg.Auth)
 	authAPI := authhandler.NewHandler(authSvc, rateLimiter)
 
-	if err := mongodb.EnsureAll(context.Background(), authSessions); err != nil {
+	// Модуль расписания
+	schedulePortal := scheduleportal.NewClient(cfg.Schedule)
+	scheduleSnapshots := schedulemongo.NewSnapshotRepository(mongoClient, cfg.Mongo.Database, cfg.Schedule.CacheTTL)
+	scheduleSvc := scheduleservice.NewService(schedulePortal, scheduleSnapshots)
+	scheduleAPI := schedulehandler.NewHandler(scheduleSvc)
+
+	if err := mongodb.EnsureAll(context.Background(), authSessions, scheduleSnapshots); err != nil {
 		logger.Fatal().Err(err).Msg("failed to ensure MongoDB indexes")
 	}
 
 	// Роутер и сервер
-	r := router.NewRouter(cfg, rateLimiter, authAPI)
+	r := router.NewRouter(cfg, rateLimiter, authAPI, scheduleAPI)
 
 	engine, err := r.InitRoutes()
 	if err != nil {
