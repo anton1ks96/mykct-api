@@ -41,6 +41,9 @@ func selectEvents(events []domain.Event, input GetScheduleInput) []domain.Event 
 			}
 
 			sg := result[i].SubGroup[0]
+			if sg.SClID != "" {
+				result[i].ClID = sg.SClID
+			}
 			result[i].Title = sg.STitle
 			if result[i].Topic == "" {
 				result[i].Topic = sg.STopic
