@@ -21,19 +21,29 @@ func anySubgroup(value string) bool {
 	return value == "" || value == "*"
 }
 
+// hasSelection сообщает, что выдачу сузили хотя бы одним параметром.
+func hasSelection(input GetScheduleInput) bool {
+	return !anySubgroup(input.Subgroup) ||
+		!anySubgroup(input.EnglishGroup) ||
+		!anySubgroup(input.ProfileSubgroup)
+}
+
 // selectEvents отбирает занятия под выбранные подгруппы, схлопывает одиночную
 // подгруппу в само занятие и сортирует результат по дате и времени начала.
 func selectEvents(events []domain.Event, input GetScheduleInput) []domain.Event {
 	result := filterBySelection(events, input)
 
 	// Когда после отбора осталась одна подгруппа, занятие описывается ею самой
-	if !anySubgroup(input.Subgroup) {
+	if hasSelection(input) {
 		for i := range result {
 			if len(result[i].SubGroup) != 1 {
 				continue
 			}
 
 			sg := result[i].SubGroup[0]
+			if sg.SClID != "" {
+				result[i].ClID = sg.SClID
+			}
 			result[i].Title = sg.STitle
 			if result[i].Topic == "" {
 				result[i].Topic = sg.STopic
@@ -59,7 +69,7 @@ func selectEvents(events []domain.Event, input GetScheduleInput) []domain.Event 
 // без подгрупп идёт всем; занятие, у которого не выжила ни одна подгруппа,
 // выпадает целиком.
 func filterBySelection(events []domain.Event, input GetScheduleInput) []domain.Event {
-	if anySubgroup(input.Subgroup) {
+	if !hasSelection(input) {
 		return events
 	}
 
@@ -124,8 +134,8 @@ func matchesSelection(subgroupID string, input GetScheduleInput) bool {
 		return strings.EqualFold(subgroupID, mainSubgroup)
 	}
 
-	// 5. Всё остальное относится к чужой подгруппе
-	return false
+	// 5. Профиль и всё прочее отбирается выбранной подгруппой
+	return anySubgroup(input.Subgroup)
 }
 
 // startMinutes переводит "09:00" в минуты от полуночи. Непонятное время уходит
