@@ -20,7 +20,7 @@ func NewHandler(svc *service.Service, rateLimiter *middleware.RateLimiter) *Hand
 	return &Handler{service: svc, rateLimiter: rateLimiter}
 }
 
-// Init регистрирует маршруты модуля в группе /api/v1.
+// Init регистрирует маршруты модуля в группе /api/mykct/v1.
 func (h *Handler) Init(v1 *gin.RouterGroup) {
 	auth := v1.Group("/auth")
 	{
