@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Module - бизнес-модуль, регистрирующий свои маршруты в группе /api/v1.
+// Module - бизнес-модуль, регистрирующий свои маршруты в группе /api/mykct/v1.
 type Module interface {
 	Init(v1 *gin.RouterGroup)
 }
@@ -56,7 +56,7 @@ func (r *Router) InitRoutes() (*gin.Engine, error) {
 	{
 		api.GET("/ping", r.ping)
 
-		v1 := api.Group("/v1")
+		v1 := api.Group("/mykct/v1")
 		{
 			for _, module := range r.modules {
 				module.Init(v1)

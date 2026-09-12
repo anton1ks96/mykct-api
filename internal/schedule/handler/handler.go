@@ -19,7 +19,7 @@ func NewHandler(svc *service.Service) *Handler {
 	return &Handler{service: svc}
 }
 
-// Init регистрирует маршруты модуля в группе /api/v1. Пути плоские и без
+// Init регистрирует маршруты модуля в группе /api/mykct/v1. Пути плоские и без
 // аутентификации: мобильные клиенты ходят за расписанием без токена.
 func (h *Handler) Init(v1 *gin.RouterGroup) {
 	v1.GET("/schedule", h.getSchedule)
