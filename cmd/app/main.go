@@ -10,6 +10,9 @@ import (
 	"sync"
 	"syscall"
 
+	attendancehandler "github.com/anton1ks96/mykct-api/internal/attendance/handler"
+	attendanceportal "github.com/anton1ks96/mykct-api/internal/attendance/repository/portal"
+	attendanceservice "github.com/anton1ks96/mykct-api/internal/attendance/service"
 	authhandler "github.com/anton1ks96/mykct-api/internal/auth/handler"
 	authldap "github.com/anton1ks96/mykct-api/internal/auth/repository/ldap"
 	authmongo "github.com/anton1ks96/mykct-api/internal/auth/repository/mongo"
@@ -89,12 +92,17 @@ func main() {
 	scheduleSvc := scheduleservice.NewService(schedulePortal, scheduleSnapshots)
 	scheduleAPI := schedulehandler.NewHandler(scheduleSvc)
 
+	// Модуль посещаемости
+	attendancePortal := attendanceportal.NewClient(cfg.Attendance)
+	attendanceSvc := attendanceservice.NewService(attendancePortal)
+	attendanceAPI := attendancehandler.NewHandler(attendanceSvc, authAPI.Auth())
+
 	if err := mongodb.EnsureAll(context.Background(), authSessions, scheduleSnapshots); err != nil {
 		logger.Fatal().Err(err).Msg("failed to ensure MongoDB indexes")
 	}
 
 	// Роутер и сервер
-	r := router.NewRouter(cfg, rateLimiter, authAPI, scheduleAPI)
+	r := router.NewRouter(cfg, rateLimiter, authAPI, scheduleAPI, attendanceAPI)
 
 	engine, err := r.InitRoutes()
 	if err != nil {
