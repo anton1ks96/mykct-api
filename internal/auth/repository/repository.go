@@ -32,4 +32,6 @@ type SessionRepository interface {
 	Revoke(ctx context.Context, tokenHash string) error
 	// RevokeAllByUser удаляет все сессии пользователя.
 	RevokeAllByUser(ctx context.Context, userID string) error
+	// ActiveAcademicGroups возвращает академические группы живых сессий без повторов.
+	ActiveAcademicGroups(ctx context.Context) ([]string, error)
 }

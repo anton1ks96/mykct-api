@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/anton1ks96/mykct-api/internal/auth/domain"
@@ -190,6 +191,47 @@ func (r *SessionRepository) Revoke(ctx context.Context, tokenHash string) error 
 	op.Debug().Int64("deleted", res.DeletedCount).Msg("refresh session revoked")
 
 	return nil
+}
+
+// ActiveAcademicGroups возвращает академические группы живых сессий без повторов:
+// по ним модуль расписания понимает, за кем вообще имеет смысл следить.
+func (r *SessionRepository) ActiveAcademicGroups(ctx context.Context) ([]string, error) {
+	op := logger.NewLogOp(ctx, log, "ActiveAcademicGroups")
+
+	filter := bson.M{
+		"academic_group": bson.M{"$exists": true, "$ne": ""},
+		"expires_at":     bson.M{"$gt": time.Now()},
+	}
+
+	var groups []string
+	if err := r.coll.Distinct(ctx, "academic_group", filter).Decode(&groups); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			op.Debug().Msg("no active sessions with academic group")
+			return nil, nil
+		}
+		op.Failed(err).Msg("failed to list active academic groups")
+		return nil, fmt.Errorf("failed to list active academic groups: %w", err)
+	}
+
+	// Distinct дедуплицирует сырые значения, поэтому повторы убираются после
+	// обрезки: "ИТ25-11" и "ИТ25-11 " в каталоге дали бы группу дважды
+	seen := make(map[string]struct{}, len(groups))
+	result := make([]string, 0, len(groups))
+	for _, group := range groups {
+		trimmed := strings.TrimSpace(group)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+
+	op.Debug().Int("groups", len(result)).Msg("active academic groups listed")
+
+	return result, nil
 }
 
 // RevokeAllByUser удаляет все сессии пользователя.
