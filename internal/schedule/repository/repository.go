@@ -34,8 +34,6 @@ type SnapshotRepository interface {
 type WeekStateRepository interface {
 	// Find возвращает состояние недели группы.
 	Find(ctx context.Context, group, weekStart string) (*domain.WeekState, error)
-	// KnownGroups возвращает группы, за которыми уже следили хоть какую-то неделю.
-	KnownGroups(ctx context.Context) ([]string, error)
 	// Create заводит состояние недели; уже заведённое - ErrWeekStateExists.
 	Create(ctx context.Context, state *domain.WeekState) error
 	// MarkPublished фиксирует появление расписания одной операцией и сообщает,
@@ -43,4 +41,13 @@ type WeekStateRepository interface {
 	MarkPublished(ctx context.Context, group, weekStart string, eventsCount int, at time.Time) (bool, error)
 	// Touch отмечает, что неделю опросили, не трогая признак публикации.
 	Touch(ctx context.Context, group, weekStart string, eventsCount int, at time.Time) error
+}
+
+// TrackedGroupRepository - отметки о том, с какого момента за группой следят.
+// Хранятся без TTL: по ним новая группа отличается от смены недели у знакомой.
+type TrackedGroupRepository interface {
+	// All возвращает группы, за которыми уже следят.
+	All(ctx context.Context) ([]string, error)
+	// Track отмечает начало слежения; повторный вызов момент не сдвигает.
+	Track(ctx context.Context, group string, at time.Time) error
 }

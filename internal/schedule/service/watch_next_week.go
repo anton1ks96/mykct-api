@@ -101,15 +101,15 @@ func (s *Service) CheckNextWeek(ctx context.Context) error {
 		return nil
 	}
 
-	// Знакомство с группой берётся одним запросом на весь прогон: оно нужно
-	// только чтобы отличить новую группу от смены недели у знакомой
-	knownGroups, err := s.states.KnownGroups(ctx)
+	// Отметки слежения берутся одним запросом на весь прогон: они нужны только
+	// чтобы отличить новую группу от смены недели у знакомой
+	trackedGroups, err := s.tracked.All(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to list known groups: %w", err)
+		return fmt.Errorf("failed to list tracked groups: %w", err)
 	}
-	known := make(map[string]bool, len(knownGroups))
-	for _, group := range knownGroups {
-		known[group] = true
+	tracked := make(map[string]bool, len(trackedGroups))
+	for _, group := range trackedGroups {
+		tracked[group] = true
 	}
 
 	weekStart, weekEnd := collegetime.NextWeek(time.Now())
@@ -125,7 +125,7 @@ func (s *Service) CheckNextWeek(ctx context.Context) error {
 			return ctx.Err()
 		}
 
-		appeared, err := s.checkGroupWeek(ctx, group, weekStart, weekEnd, known[group])
+		appeared, err := s.checkGroupWeek(ctx, group, weekStart, weekEnd, tracked[group])
 		switch {
 		case err == nil:
 			failures = 0
@@ -194,8 +194,19 @@ func (s *Service) checkGroupWeek(
 			Msg("published week came back empty, keeping the published flag")
 	}
 
-	return s.applyWeekAction(ctx, decideWeek(state, groupKnown, len(events)),
+	appeared, err := s.applyWeekAction(ctx, decideWeek(state, groupKnown, len(events)),
 		group, weekStart, weekEnd, len(events), now)
+	if err != nil {
+		return false, err
+	}
+
+	// Отметка ставится после решения: следующий прогон уже считает группу
+	// знакомой, и новая неделя с расписанием пойдёт в уведомление, а не в baseline
+	if err := s.tracked.Track(ctx, group, now); err != nil {
+		op.Failed(err).Str("group", group).Msg("failed to mark group as tracked")
+	}
+
+	return appeared, nil
 }
 
 // applyWeekAction записывает решение по неделе в хранилище.

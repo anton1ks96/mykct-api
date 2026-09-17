@@ -25,6 +25,7 @@ type Service struct {
 	portal    repository.Portal
 	snapshots repository.SnapshotRepository
 	states    repository.WeekStateRepository
+	tracked   repository.TrackedGroupRepository
 	groups    ActiveGroups
 	watch     config.ScheduleWatchConfig
 }
@@ -34,6 +35,7 @@ func NewService(
 	portal repository.Portal,
 	snapshots repository.SnapshotRepository,
 	states repository.WeekStateRepository,
+	tracked repository.TrackedGroupRepository,
 	groups ActiveGroups,
 	watch config.ScheduleWatchConfig,
 ) *Service {
@@ -41,6 +43,7 @@ func NewService(
 		portal:    portal,
 		snapshots: snapshots,
 		states:    states,
+		tracked:   tracked,
 		groups:    groups,
 		watch:     watch,
 	}

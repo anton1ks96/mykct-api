@@ -121,25 +121,6 @@ func (r *WeekStateRepository) Find(ctx context.Context, group, weekStart string)
 	return doc.toDomain(), nil
 }
 
-// KnownGroups возвращает группы, за которыми уже следили хоть какую-то неделю.
-// По ним отличается новая группа от смены недели у знакомой.
-func (r *WeekStateRepository) KnownGroups(ctx context.Context) ([]string, error) {
-	op := logger.NewLogOp(ctx, log, "KnownGroups")
-
-	var groups []string
-	if err := r.coll.Distinct(ctx, "group", bson.M{}).Decode(&groups); err != nil {
-		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, nil
-		}
-		op.Failed(err).Msg("failed to list known groups")
-		return nil, fmt.Errorf("failed to list known groups: %w", err)
-	}
-
-	op.Debug().Int("groups", len(groups)).Msg("known groups listed")
-
-	return groups, nil
-}
-
 // Create заводит состояние недели. Гонка инстансов упирается в уникальный
 // индекс и превращается в ErrWeekStateExists.
 func (r *WeekStateRepository) Create(ctx context.Context, state *domain.WeekState) error {
