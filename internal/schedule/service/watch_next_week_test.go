@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -132,5 +133,158 @@ func TestNextTickNeverBusyLoops(t *testing.T) {
 
 	if got := nextTick(now, cfg); got < minTick {
 		t.Errorf("nextTick() = %v, want at least %v", got, minTick)
+	}
+}
+
+// fakeWeekStates - подставное хранилище состояний: запоминает, что записали.
+type fakeWeekStates struct {
+	created    *domain.WeekState
+	touched    bool
+	markCalled bool
+	markResult bool
+	createErr  error
+}
+
+func (f *fakeWeekStates) Find(context.Context, string, string) (*domain.WeekState, error) {
+	return nil, domain.ErrWeekStateNotFound
+}
+
+func (f *fakeWeekStates) Create(_ context.Context, state *domain.WeekState) error {
+	if f.createErr != nil {
+		return f.createErr
+	}
+	f.created = state
+	return nil
+}
+
+func (f *fakeWeekStates) MarkPublished(context.Context, string, string, int, time.Time) (bool, error) {
+	f.markCalled = true
+	return f.markResult, nil
+}
+
+func (f *fakeWeekStates) Touch(context.Context, string, string, int, time.Time) error {
+	f.touched = true
+	return nil
+}
+
+// applyAction прогоняет решение через сервис с подставным хранилищем.
+func applyAction(t *testing.T, states *fakeWeekStates, action weekAction) bool {
+	t.Helper()
+
+	svc := &Service{states: states}
+	appeared, err := svc.applyWeekAction(context.Background(), action,
+		"ИТ25-11", "2026-09-21", "2026-09-27", 5, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("applyWeekAction() returned error: %v", err)
+	}
+
+	return appeared
+}
+
+// TestApplyWeekActionCreateBaseline - неделя, заполненная до начала слежения,
+// заводится опубликованной, но без момента публикации: уведомлять не о чем.
+func TestApplyWeekActionCreateBaseline(t *testing.T) {
+	states := &fakeWeekStates{}
+
+	if appeared := applyAction(t, states, actionCreateBaseline); appeared {
+		t.Error("applyWeekAction() reported an appearance for a baseline week")
+	}
+	if states.created == nil {
+		t.Fatal("applyWeekAction() did not create the state")
+	}
+	if !states.created.Published {
+		t.Error("baseline state must be published")
+	}
+	if states.created.PublishedAt != nil {
+		t.Errorf("baseline state must not carry PublishedAt, got %v", states.created.PublishedAt)
+	}
+}
+
+// TestApplyWeekActionCreatePublished - неделя, появившаяся при нас, заводится
+// с моментом публикации: именно её подхватит рассылка.
+func TestApplyWeekActionCreatePublished(t *testing.T) {
+	states := &fakeWeekStates{}
+
+	if appeared := applyAction(t, states, actionCreatePublished); !appeared {
+		t.Error("applyWeekAction() did not report the appearance")
+	}
+	if states.created == nil {
+		t.Fatal("applyWeekAction() did not create the state")
+	}
+	if !states.created.Published || states.created.PublishedAt == nil {
+		t.Errorf("published state must carry PublishedAt, got published=%v at=%v",
+			states.created.Published, states.created.PublishedAt)
+	}
+	if states.created.NotifiedAt != nil {
+		t.Error("fresh state must wait for notification, NotifiedAt is set")
+	}
+}
+
+// TestApplyWeekActionCreateTracking - пустая неделя заводится неопубликованной.
+func TestApplyWeekActionCreateTracking(t *testing.T) {
+	states := &fakeWeekStates{}
+
+	if appeared := applyAction(t, states, actionCreateTracking); appeared {
+		t.Error("applyWeekAction() reported an appearance for an empty week")
+	}
+	if states.created == nil {
+		t.Fatal("applyWeekAction() did not create the state")
+	}
+	if states.created.Published || states.created.PublishedAt != nil {
+		t.Error("tracking state must be neither published nor stamped")
+	}
+}
+
+// TestApplyWeekActionPublishPassesThroughResult - переход засчитывается только
+// тому вызову, за которым его признало хранилище.
+func TestApplyWeekActionPublishPassesThroughResult(t *testing.T) {
+	won := &fakeWeekStates{markResult: true}
+	if appeared := applyAction(t, won, actionPublish); !appeared {
+		t.Error("applyWeekAction() lost the appearance reported by the storage")
+	}
+
+	lost := &fakeWeekStates{markResult: false}
+	if appeared := applyAction(t, lost, actionPublish); appeared {
+		t.Error("applyWeekAction() reported an appearance the storage did not confirm")
+	}
+	if !lost.markCalled {
+		t.Error("applyWeekAction() did not go to MarkPublished")
+	}
+}
+
+// TestApplyWeekActionTouch - обычный опрос только обновляет отметку.
+func TestApplyWeekActionTouch(t *testing.T) {
+	states := &fakeWeekStates{}
+
+	if appeared := applyAction(t, states, actionTouch); appeared {
+		t.Error("applyWeekAction() reported an appearance for a touch")
+	}
+	if !states.touched {
+		t.Error("applyWeekAction() did not touch the state")
+	}
+	if states.created != nil {
+		t.Error("applyWeekAction() created a state instead of touching it")
+	}
+}
+
+// TestApplyWeekActionExistingStateIsNotAnAppearance - состояние завёл другой
+// инстанс, он же и уведомит: второго уведомления быть не должно.
+func TestApplyWeekActionExistingStateIsNotAnAppearance(t *testing.T) {
+	states := &fakeWeekStates{createErr: domain.ErrWeekStateExists}
+
+	if appeared := applyAction(t, states, actionCreatePublished); appeared {
+		t.Error("applyWeekAction() reported an appearance for a state created elsewhere")
+	}
+}
+
+// TestApplyWeekActionRejectsUnknown - новое действие не должно молча уходить в
+// ветку создания состояния.
+func TestApplyWeekActionRejectsUnknown(t *testing.T) {
+	svc := &Service{states: &fakeWeekStates{}}
+
+	_, err := svc.applyWeekAction(context.Background(), weekAction(42),
+		"ИТ25-11", "2026-09-21", "2026-09-27", 5, time.Now().UTC())
+	if err == nil {
+		t.Error("applyWeekAction() accepted an unknown action")
 	}
 }
