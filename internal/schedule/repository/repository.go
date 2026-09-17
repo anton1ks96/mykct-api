@@ -3,6 +3,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/anton1ks96/mykct-api/internal/schedule/domain"
 )
@@ -26,4 +27,20 @@ type SnapshotRepository interface {
 	SaveClassDetails(ctx context.Context, details *domain.ClassDetails) error
 	// FindClassDetails возвращает последние сохранённые детали занятия.
 	FindClassDetails(ctx context.Context, clid string) (*domain.ClassDetails, error)
+}
+
+// WeekStateRepository - состояния недель расписания: по ним ловится появление
+// расписания и отсюда же берутся неразосланные уведомления.
+type WeekStateRepository interface {
+	// Find возвращает состояние недели группы.
+	Find(ctx context.Context, group, weekStart string) (*domain.WeekState, error)
+	// KnownGroups возвращает группы, за которыми уже следили хоть какую-то неделю.
+	KnownGroups(ctx context.Context) ([]string, error)
+	// Create заводит состояние недели; уже заведённое - ErrWeekStateExists.
+	Create(ctx context.Context, state *domain.WeekState) error
+	// MarkPublished фиксирует появление расписания одной операцией и сообщает,
+	// этот ли вызов зафиксировал переход.
+	MarkPublished(ctx context.Context, group, weekStart string, eventsCount int, at time.Time) (bool, error)
+	// Touch отмечает, что неделю опросили, не трогая признак публикации.
+	Touch(ctx context.Context, group, weekStart string, eventsCount int, at time.Time) error
 }
