@@ -18,6 +18,8 @@ const (
 	CodeScheduleUnavailable = "SCHEDULE_UNAVAILABLE"
 	// CodeClassDetailsUnavailable - портал колледжа недоступен и деталей занятия нет.
 	CodeClassDetailsUnavailable = "CLASS_DETAILS_UNAVAILABLE"
+	// CodeWeekNotTracked - за следующей неделей группы ещё не следили.
+	CodeWeekNotTracked = "SCHEDULE_WEEK_NOT_TRACKED"
 )
 
 // mapDomainError переводит доменную ошибку в статус и тело ответа. Наружу

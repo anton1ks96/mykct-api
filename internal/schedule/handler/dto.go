@@ -99,3 +99,40 @@ func newScheduleEvents(events []domain.Event) []scheduleEvent {
 func formatFetchedAt(fetchedAt time.Time) string {
 	return fetchedAt.UTC().Format(time.RFC3339)
 }
+
+// nextWeekRequest - параметры запроса состояния следующей недели.
+type nextWeekRequest struct {
+	Group string `form:"group" binding:"required"`
+}
+
+// nextWeekResponse - состояние следующей недели. published_at == null при
+// published == true означает, что неделя была заполнена ещё до того, как сервис
+// начал следить за группой: уведомление по ней не рассылалось.
+type nextWeekResponse struct {
+	Group       string  `json:"group"`
+	WeekStart   string  `json:"week_start"`
+	WeekEnd     string  `json:"week_end"`
+	Published   bool    `json:"published"`
+	PublishedAt *string `json:"published_at"`
+	EventsCount int     `json:"events_count"`
+	CheckedAt   string  `json:"checked_at"`
+}
+
+// newNextWeekResponse собирает ответ из состояния недели.
+func newNextWeekResponse(state *domain.WeekState) nextWeekResponse {
+	out := nextWeekResponse{
+		Group:       state.Group,
+		WeekStart:   state.WeekStart,
+		WeekEnd:     state.WeekEnd,
+		Published:   state.Published,
+		EventsCount: state.EventsCount,
+		CheckedAt:   formatFetchedAt(state.LastCheckedAt),
+	}
+
+	if state.PublishedAt != nil {
+		publishedAt := formatFetchedAt(*state.PublishedAt)
+		out.PublishedAt = &publishedAt
+	}
+
+	return out
+}
