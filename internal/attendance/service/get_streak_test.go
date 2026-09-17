@@ -56,21 +56,47 @@ func TestCalculateStreakCurrentAndLongest(t *testing.T) {
 	}
 }
 
-// TestCalculateStreakBrokenByLastDay - пропуск в последний учебный день обнуляет
-// текущую серию, но не последнюю дату посещения.
+// TestCalculateStreakBrokenByLastDay - пропуск в последний учебный день до
+// сегодняшнего обнуляет текущую серию, но не последнюю дату посещения.
 func TestCalculateStreakBrokenByLastDay(t *testing.T) {
 	records := []domain.Record{
 		mark("2026-09-01", domain.StatusPresent),
 		mark("2026-09-02", statusAbsent),
 	}
 
-	got := calculateStreak(records, "2026-09-01", "2026-09-02")
+	got := calculateStreak(records, "2026-09-01", "2026-09-03")
 
 	if got.CurrentStreak != 0 {
 		t.Errorf("expected current streak 0, got %d", got.CurrentStreak)
 	}
 	if got.LastAttendedDate != "2026-09-01" {
 		t.Errorf("expected last attended 2026-09-01, got %q", got.LastAttendedDate)
+	}
+}
+
+// TestCalculateStreakTodayPending - сегодня без посещения не рвёт серию и не
+// считается учебным днём: пары могут быть ещё не отмечены.
+func TestCalculateStreakTodayPending(t *testing.T) {
+	records := []domain.Record{
+		mark("2026-09-01", domain.StatusPresent),
+		mark("2026-09-02", domain.StatusPresent),
+		mark("2026-09-03", statusAbsent),
+	}
+
+	got := calculateStreak(records, "2026-09-01", "2026-09-03")
+
+	if got.CurrentStreak != 2 {
+		t.Errorf("expected current streak 2, got %d", got.CurrentStreak)
+	}
+	if got.TotalSchoolDays != 2 {
+		t.Errorf("expected 2 school days, got %d", got.TotalSchoolDays)
+	}
+
+	// Посещение сегодня засчитывается сразу
+	records = append(records, mark("2026-09-03", domain.StatusPresent))
+	got = calculateStreak(records, "2026-09-01", "2026-09-03")
+	if got.CurrentStreak != 3 {
+		t.Errorf("expected current streak 3, got %d", got.CurrentStreak)
 	}
 }
 
@@ -101,7 +127,7 @@ func TestCalculateStreakSkipsExcused(t *testing.T) {
 		mark("2026-09-04", statusAbsent),
 	}
 
-	got := calculateStreak(records, "2026-09-01", "2026-09-04")
+	got := calculateStreak(records, "2026-09-01", "2026-09-05")
 
 	if got.LongestStreak != 2 {
 		t.Errorf("expected longest streak 2, got %d", got.LongestStreak)

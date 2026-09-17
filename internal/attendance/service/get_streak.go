@@ -61,6 +61,11 @@ func calculateStreak(records []domain.Record, periodStart, periodEnd string) dom
 		}
 		attended[r.Day] = attended[r.Day] || r.Status == domain.StatusPresent
 	}
+	// Сегодня без посещения ещё не итог: неотмеченная пара приходит как пропуск,
+	// и серия обнулялась бы до отметки преподавателя. Прогул засчитается завтра
+	if present, ok := attended[periodEnd]; ok && !present {
+		delete(attended, periodEnd)
+	}
 	if len(attended) == 0 {
 		return streak
 	}
