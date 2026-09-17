@@ -182,6 +182,10 @@ func (c *Client) post(ctx context.Context, path string, payload, dst any) error 
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%w: unexpected status %d", domain.ErrPortalUnavailable, resp.StatusCode)
+	}
+
 	if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
 		return fmt.Errorf("%w: %v", domain.ErrPortalUnavailable, err)
 	}
