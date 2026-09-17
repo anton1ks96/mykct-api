@@ -113,7 +113,16 @@ func main() {
 
 	workerCtx, stopWorkers := context.WithCancel(context.Background())
 	var workers sync.WaitGroup
-	_ = workerCtx
+
+	if cfg.Schedule.Watch.Enabled {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			scheduleSvc.RunNextWeekWatcher(workerCtx)
+		}()
+	} else {
+		logger.Info().Msg("next week schedule watcher is disabled")
+	}
 
 	go func() {
 		if err := srv.Run(); err != nil && !errors.Is(err, http.ErrServerClosed) {
