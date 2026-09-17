@@ -3,9 +3,15 @@ package collegetime
 
 import "time"
 
-// TZ - часовой пояс колледжа, Екатеринбург без перехода на летнее время.
+// tz - часовой пояс колледжа, Екатеринбург без перехода на летнее время.
 // Фиксированное смещение не требует tzdata в контейнере.
-var TZ = time.FixedZone("YEKT", 5*60*60)
+var tz = time.FixedZone("YEKT", 5*60*60)
+
+// TZ возвращает часовой пояс колледжа. Функция, а не переменная: от пояса
+// зависят и границы недели, и учебный год, переприсвоить его извне нельзя.
+func TZ() *time.Location {
+	return tz
+}
 
 // NextWeek возвращает понедельник и воскресенье следующей недели по времени
 // колледжа, в формате ГГГГ-ММ-ДД.
@@ -18,8 +24,8 @@ func NextWeek(now time.Time) (start, end string) {
 // NextMonday возвращает полночь ближайшего будущего понедельника по времени
 // колледжа. Для самого понедельника это следующий понедельник, не сегодняшний.
 func NextMonday(now time.Time) time.Time {
-	now = now.In(TZ)
-	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, TZ)
+	now = now.In(tz)
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz)
 
 	offset := (8 - int(midnight.Weekday())) % 7
 	if offset == 0 {

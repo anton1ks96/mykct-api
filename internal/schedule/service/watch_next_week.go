@@ -260,7 +260,7 @@ func (s *Service) applyWeekAction(
 // watchInterval выбирает интервал опроса: в дни, когда выкладывают расписание,
 // часто, в остальные - редко.
 func watchInterval(now time.Time, cfg config.ScheduleWatchConfig) time.Duration {
-	if cfg.ActiveDays[now.In(collegetime.TZ).Weekday()] {
+	if cfg.ActiveDays[now.In(collegetime.TZ()).Weekday()] {
 		return cfg.ActiveInterval
 	}
 

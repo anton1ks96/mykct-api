@@ -7,7 +7,7 @@ import (
 
 // at собирает момент по времени колледжа из даты и часа.
 func at(year int, month time.Month, day, hour int) time.Time {
-	return time.Date(year, month, day, hour, 0, 0, 0, TZ)
+	return time.Date(year, month, day, hour, 0, 0, 0, tz)
 }
 
 // TestNextWeekWholeWeek - вся опорная неделя указывает на одну и ту же

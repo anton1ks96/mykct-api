@@ -81,10 +81,10 @@ func TestWatchInterval(t *testing.T) {
 		now  time.Time
 		want time.Duration
 	}{
-		{"пятница", time.Date(2026, time.September, 18, 12, 0, 0, 0, collegetime.TZ), cfg.ActiveInterval},
-		{"суббота", time.Date(2026, time.September, 19, 12, 0, 0, 0, collegetime.TZ), cfg.ActiveInterval},
-		{"воскресенье", time.Date(2026, time.September, 20, 12, 0, 0, 0, collegetime.TZ), cfg.ActiveInterval},
-		{"среда", time.Date(2026, time.September, 16, 12, 0, 0, 0, collegetime.TZ), cfg.IdleInterval},
+		{"пятница", time.Date(2026, time.September, 18, 12, 0, 0, 0, collegetime.TZ()), cfg.ActiveInterval},
+		{"суббота", time.Date(2026, time.September, 19, 12, 0, 0, 0, collegetime.TZ()), cfg.ActiveInterval},
+		{"воскресенье", time.Date(2026, time.September, 20, 12, 0, 0, 0, collegetime.TZ()), cfg.ActiveInterval},
+		{"среда", time.Date(2026, time.September, 16, 12, 0, 0, 0, collegetime.TZ()), cfg.IdleInterval},
 		// По UTC ещё четверг, по времени колледжа уже пятница
 		{"четверг по UTC", time.Date(2026, time.September, 17, 19, 30, 0, 0, time.UTC), cfg.ActiveInterval},
 	}
@@ -104,7 +104,7 @@ func TestNextTickStopsAtWeekBoundary(t *testing.T) {
 	cfg := watchConfig()
 
 	// Воскресенье 23:50: до смены недели десять минут, активный интервал - пятнадцать
-	now := time.Date(2026, time.September, 20, 23, 50, 0, 0, collegetime.TZ)
+	now := time.Date(2026, time.September, 20, 23, 50, 0, 0, collegetime.TZ())
 	if got := nextTick(now, cfg); got != 10*time.Minute {
 		t.Errorf("nextTick() = %v, want %v", got, 10*time.Minute)
 	}
@@ -112,13 +112,13 @@ func TestNextTickStopsAtWeekBoundary(t *testing.T) {
 	// То же воскресенье на холостом интервале: до смены недели два часа, интервал - три
 	idle := cfg
 	idle.ActiveDays = map[time.Weekday]bool{}
-	evening := time.Date(2026, time.September, 20, 22, 0, 0, 0, collegetime.TZ)
+	evening := time.Date(2026, time.September, 20, 22, 0, 0, 0, collegetime.TZ())
 	if got := nextTick(evening, idle); got != 2*time.Hour {
 		t.Errorf("nextTick() = %v, want %v", got, 2*time.Hour)
 	}
 
 	// Середина недели - обычный интервал, граница далеко
-	wednesday := time.Date(2026, time.September, 16, 12, 0, 0, 0, collegetime.TZ)
+	wednesday := time.Date(2026, time.September, 16, 12, 0, 0, 0, collegetime.TZ())
 	if got := nextTick(wednesday, cfg); got != cfg.IdleInterval {
 		t.Errorf("nextTick() = %v, want %v", got, cfg.IdleInterval)
 	}
@@ -128,7 +128,7 @@ func TestNextTickStopsAtWeekBoundary(t *testing.T) {
 // секунды до смены недели.
 func TestNextTickNeverBusyLoops(t *testing.T) {
 	cfg := watchConfig()
-	now := time.Date(2026, time.September, 20, 23, 59, 59, 0, collegetime.TZ)
+	now := time.Date(2026, time.September, 20, 23, 59, 59, 0, collegetime.TZ())
 
 	if got := nextTick(now, cfg); got < minTick {
 		t.Errorf("nextTick() = %v, want at least %v", got, minTick)

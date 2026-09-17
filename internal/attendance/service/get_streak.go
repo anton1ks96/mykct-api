@@ -33,14 +33,14 @@ func (s *Service) GetStreak(ctx context.Context, login string) (*domain.Streak, 
 // academicYearPeriod возвращает период с 1 сентября текущего учебного года по
 // сегодняшний день по времени колледжа, в формате ГГГГ-ММ-ДД.
 func academicYearPeriod(now time.Time) (start, end string) {
-	now = now.In(collegetime.TZ)
+	now = now.In(collegetime.TZ())
 
 	year := now.Year()
 	if now.Month() < time.September {
 		year--
 	}
 
-	return time.Date(year, time.September, 1, 0, 0, 0, 0, collegetime.TZ).Format(time.DateOnly),
+	return time.Date(year, time.September, 1, 0, 0, 0, 0, collegetime.TZ()).Format(time.DateOnly),
 		now.Format(time.DateOnly)
 }
 
