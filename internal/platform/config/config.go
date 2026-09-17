@@ -16,6 +16,9 @@ import (
 // X-Forwarded-For считается доверенным.
 var DefaultTrustedProxies = []string{"172.16.0.0/12"}
 
+// minWeekStateTTL - минимальный срок хранения состояния недели: неделя плюс запас.
+const minWeekStateTTL = 8 * 24 * time.Hour
+
 type (
 	// Config содержит полную конфигурацию сервиса.
 	Config struct {
@@ -108,9 +111,21 @@ type (
 
 	// ScheduleConfig содержит настройки портала колледжа и кэша расписания.
 	ScheduleConfig struct {
-		PortalURL     string        // Базовый адрес портала: https://portal.students.it-college.ru
-		PortalTimeout time.Duration // Таймаут запроса к порталу, без него не сработает откат на кэш
-		CacheTTL      time.Duration // Сколько снимок расписания хранится в MongoDB
+		PortalURL     string              // Базовый адрес портала: https://portal.students.it-college.ru
+		PortalTimeout time.Duration       // Таймаут запроса к порталу, без него не сработает откат на кэш
+		CacheTTL      time.Duration       // Сколько снимок расписания хранится в MongoDB
+		Watch         ScheduleWatchConfig // Воркер, ловящий появление расписания на следующую неделю
+	}
+
+	// ScheduleWatchConfig содержит настройки воркера, который ловит появление
+	// расписания на следующую неделю.
+	ScheduleWatchConfig struct {
+		Enabled        bool                  // Запускать ли воркер: он ходит на портал, видимый не отовсюду
+		ActiveInterval time.Duration         // Интервал опроса в дни, когда расписание выкладывают
+		IdleInterval   time.Duration         // Интервал опроса в остальные дни
+		ActiveDays     map[time.Weekday]bool // Дни частого опроса
+		GroupDelay     time.Duration         // Пауза между группами, чтобы не бить по порталу пачкой
+		StateTTL       time.Duration         // Сколько живёт состояние недели в MongoDB
 	}
 
 	// AttendanceConfig содержит настройки портала колледжа для посещаемости.
@@ -252,6 +267,39 @@ func setFromEnv(cfg *Config) error {
 		return fmt.Errorf("invalid SCHEDULE_CACHE_TTL: %w", err)
 	}
 
+	cfg.Schedule.Watch.Enabled = getEnvAsBool("SCHEDULE_WATCH_ENABLED", false)
+	cfg.Schedule.Watch.ActiveInterval, err = getEnvAsDuration("SCHEDULE_WATCH_ACTIVE_INTERVAL", 15*time.Minute)
+	if err != nil {
+		return fmt.Errorf("invalid SCHEDULE_WATCH_ACTIVE_INTERVAL: %w", err)
+	}
+	cfg.Schedule.Watch.IdleInterval, err = getEnvAsDuration("SCHEDULE_WATCH_IDLE_INTERVAL", 3*time.Hour)
+	if err != nil {
+		return fmt.Errorf("invalid SCHEDULE_WATCH_IDLE_INTERVAL: %w", err)
+	}
+	// Заданная пустой переменная означает "учащённых дней нет", поэтому
+	// getEnvOrDefault не подходит: он считает пустое значение отсутствующим
+	activeDays, ok := os.LookupEnv("SCHEDULE_WATCH_ACTIVE_DAYS")
+	if !ok {
+		activeDays = "Fri,Sat,Sun"
+	}
+	cfg.Schedule.Watch.ActiveDays, err = parseWeekdays(activeDays)
+	if err != nil {
+		return fmt.Errorf("invalid SCHEDULE_WATCH_ACTIVE_DAYS: %w", err)
+	}
+	cfg.Schedule.Watch.GroupDelay, err = getEnvAsDuration("SCHEDULE_WATCH_GROUP_DELAY", 500*time.Millisecond)
+	if err != nil {
+		return fmt.Errorf("invalid SCHEDULE_WATCH_GROUP_DELAY: %w", err)
+	}
+	cfg.Schedule.Watch.StateTTL, err = getEnvAsDuration("SCHEDULE_WATCH_STATE_TTL", 720*time.Hour)
+	if err != nil {
+		return fmt.Errorf("invalid SCHEDULE_WATCH_STATE_TTL: %w", err)
+	}
+	// Состояние обязано пережить неделю, за которой следит: иначе оно исчезнет
+	// раньше, чем неделя наступит, и статус пропадёт прямо посреди слежения
+	if cfg.Schedule.Watch.StateTTL < minWeekStateTTL {
+		return fmt.Errorf("SCHEDULE_WATCH_STATE_TTL must be at least %s", minWeekStateTTL)
+	}
+
 	// Посещаемость
 	cfg.Attendance.PortalURL, err = getRequiredEnv("ATTENDANCE_PORTAL_URL")
 	if err != nil {
@@ -350,6 +398,27 @@ func joinDN(ou, baseDN string) string {
 		return baseDN
 	}
 	return ou + "," + baseDN
+}
+
+// weekdayNames - короткие имена дней недели, как они пишутся в .env.
+var weekdayNames = map[string]time.Weekday{
+	"sun": time.Sunday, "mon": time.Monday, "tue": time.Tuesday, "wed": time.Wednesday,
+	"thu": time.Thursday, "fri": time.Friday, "sat": time.Saturday,
+}
+
+// parseWeekdays разбирает "Fri,Sat,Sun" в набор дней недели.
+func parseWeekdays(raw string) (map[time.Weekday]bool, error) {
+	days := make(map[time.Weekday]bool, 7)
+
+	for _, part := range splitAndTrim(raw) {
+		day, ok := weekdayNames[strings.ToLower(part)]
+		if !ok {
+			return nil, fmt.Errorf("unknown weekday %q", part)
+		}
+		days[day] = true
+	}
+
+	return days, nil
 }
 
 // splitAndTrim разбирает строку "a, b, c" в список непустых значений.
