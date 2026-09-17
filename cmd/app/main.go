@@ -10,6 +10,9 @@ import (
 	"sync"
 	"syscall"
 
+	attendancehandler "github.com/anton1ks96/mykct-api/internal/attendance/handler"
+	attendanceportal "github.com/anton1ks96/mykct-api/internal/attendance/repository/portal"
+	attendanceservice "github.com/anton1ks96/mykct-api/internal/attendance/service"
 	authhandler "github.com/anton1ks96/mykct-api/internal/auth/handler"
 	authldap "github.com/anton1ks96/mykct-api/internal/auth/repository/ldap"
 	authmongo "github.com/anton1ks96/mykct-api/internal/auth/repository/mongo"
@@ -92,6 +95,11 @@ func main() {
 	scheduleSvc := scheduleservice.NewService(schedulePortal, scheduleSnapshots)
 	scheduleAPI := schedulehandler.NewHandler(scheduleSvc)
 
+	// Модуль посещаемости
+	attendancePortal := attendanceportal.NewClient(cfg.Attendance)
+	attendanceSvc := attendanceservice.NewService(attendancePortal)
+	attendanceAPI := attendancehandler.NewHandler(attendanceSvc, authAPI.Auth())
+
 	// Модуль успеваемости
 	performancePortal := performanceportal.NewClient(cfg.Performance)
 	performanceSvc := performanceservice.NewService(performancePortal)
@@ -102,7 +110,7 @@ func main() {
 	}
 
 	// Роутер и сервер
-	r := router.NewRouter(cfg, rateLimiter, authAPI, scheduleAPI, performanceAPI)
+	r := router.NewRouter(cfg, rateLimiter, authAPI, scheduleAPI, attendanceAPI, performanceAPI)
 
 	engine, err := r.InitRoutes()
 	if err != nil {

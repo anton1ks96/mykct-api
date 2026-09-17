@@ -29,6 +29,7 @@ type (
 		Auth        AuthConfig
 		LDAP        LDAPConfig
 		Schedule    ScheduleConfig
+		Attendance  AttendanceConfig
 		Performance PerformanceConfig
 	}
 
@@ -111,6 +112,12 @@ type (
 		PortalURL     string        // Базовый адрес портала: https://portal.students.it-college.ru
 		PortalTimeout time.Duration // Таймаут запроса к порталу, без него не сработает откат на кэш
 		CacheTTL      time.Duration // Сколько снимок расписания хранится в MongoDB
+	}
+
+	// AttendanceConfig содержит настройки портала колледжа для посещаемости.
+	AttendanceConfig struct {
+		PortalURL     string        // Базовый адрес портала: https://portal.students.it-college.ru
+		PortalTimeout time.Duration // Таймаут запроса к порталу
 	}
 
 	// PerformanceConfig содержит настройки портала колледжа для успеваемости.
@@ -250,6 +257,16 @@ func setFromEnv(cfg *Config) error {
 	cfg.Schedule.CacheTTL, err = getEnvAsDuration("SCHEDULE_CACHE_TTL", 720*time.Hour)
 	if err != nil {
 		return fmt.Errorf("invalid SCHEDULE_CACHE_TTL: %w", err)
+	}
+
+	// Посещаемость
+	cfg.Attendance.PortalURL, err = getRequiredEnv("ATTENDANCE_PORTAL_URL")
+	if err != nil {
+		return err
+	}
+	cfg.Attendance.PortalTimeout, err = getEnvAsDuration("ATTENDANCE_PORTAL_TIMEOUT", 15*time.Second)
+	if err != nil {
+		return fmt.Errorf("invalid ATTENDANCE_PORTAL_TIMEOUT: %w", err)
 	}
 
 	// Успеваемость
