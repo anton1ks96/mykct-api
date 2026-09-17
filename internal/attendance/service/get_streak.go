@@ -7,12 +7,9 @@ import (
 	"time"
 
 	"github.com/anton1ks96/mykct-api/internal/attendance/domain"
+	"github.com/anton1ks96/mykct-api/pkg/collegetime"
 	"github.com/anton1ks96/mykct-api/pkg/logger"
 )
-
-// collegeTZ - часовой пояс колледжа, Екатеринбург без перехода на летнее время.
-// Фиксированное смещение не требует tzdata в контейнере.
-var collegeTZ = time.FixedZone("YEKT", 5*60*60)
 
 // GetStreak возвращает серию посещений студента с начала учебного года по сегодня.
 func (s *Service) GetStreak(ctx context.Context, login string) (*domain.Streak, error) {
@@ -36,14 +33,14 @@ func (s *Service) GetStreak(ctx context.Context, login string) (*domain.Streak, 
 // academicYearPeriod возвращает период с 1 сентября текущего учебного года по
 // сегодняшний день по времени колледжа, в формате ГГГГ-ММ-ДД.
 func academicYearPeriod(now time.Time) (start, end string) {
-	now = now.In(collegeTZ)
+	now = now.In(collegetime.TZ)
 
 	year := now.Year()
 	if now.Month() < time.September {
 		year--
 	}
 
-	return time.Date(year, time.September, 1, 0, 0, 0, 0, collegeTZ).Format(time.DateOnly),
+	return time.Date(year, time.September, 1, 0, 0, 0, 0, collegetime.TZ).Format(time.DateOnly),
 		now.Format(time.DateOnly)
 }
 
