@@ -94,8 +94,9 @@ func main() {
 	scheduleSnapshots := schedulemongo.NewSnapshotRepository(mongoClient, cfg.Mongo.Database, cfg.Schedule.CacheTTL)
 	scheduleStates := schedulemongo.NewWeekStateRepository(mongoClient, cfg.Mongo.Database, cfg.Schedule.Watch.StateTTL)
 	scheduleTracked := schedulemongo.NewTrackedGroupRepository(mongoClient, cfg.Mongo.Database)
+	scheduleChanges := schedulemongo.NewChangeRepository(mongoClient, cfg.Mongo.Database, cfg.Schedule.Watch.StateTTL)
 	scheduleSvc := scheduleservice.NewService(schedulePortal, scheduleSnapshots, scheduleStates,
-		scheduleTracked, authSvc, cfg.Schedule.Watch)
+		scheduleTracked, scheduleChanges, authSvc, cfg.Schedule.Watch)
 	scheduleAPI := schedulehandler.NewHandler(scheduleSvc)
 
 	// Модуль посещаемости
@@ -108,7 +109,8 @@ func main() {
 	performanceSvc := performanceservice.NewService(performancePortal)
 	performanceAPI := performancehandler.NewHandler(performanceSvc, authAPI.Auth())
 
-	if err := mongodb.EnsureAll(context.Background(), authSessions, scheduleSnapshots, scheduleStates, scheduleTracked); err != nil {
+	if err := mongodb.EnsureAll(context.Background(), authSessions, scheduleSnapshots, scheduleStates, scheduleTracked,
+		scheduleChanges); err != nil {
 		logger.Fatal().Err(err).Msg("failed to ensure MongoDB indexes")
 	}
 

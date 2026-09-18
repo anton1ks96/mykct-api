@@ -48,6 +48,13 @@ type WeekStateRepository interface {
 		events []domain.Event, at time.Time) (bool, error)
 }
 
+// ChangeRepository - замеченные изменения расписания внутри недели. Источник
+// будущей рассылки: неразосланное ищется по notified_at:null.
+type ChangeRepository interface {
+	// Save записывает разницу, замеченную одним прогоном воркера.
+	Save(ctx context.Context, changes *domain.WeekChanges) error
+}
+
 // TrackedGroupRepository - отметки о том, с какого момента за группой следят.
 // Хранятся без TTL: по ним новая группа отличается от смены недели у знакомой.
 type TrackedGroupRepository interface {
