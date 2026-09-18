@@ -23,6 +23,10 @@ const minTick = time.Minute
 // startupJitter - разброс первого прогона, чтобы перезапуски не били по порталу разом.
 const startupJitter = 30 * time.Second
 
+// maxChangeLag - интервал опроса, выше которого детект изменений внутри недели
+// отстаёт настолько, что уведомление приходит уже после занятия.
+const maxChangeLag = time.Hour
+
 // weekAction - что сделать с состоянием недели по результату опроса.
 type weekAction int
 
@@ -68,6 +72,13 @@ func (s *Service) RunNextWeekWatcher(ctx context.Context) {
 	log.Info().Dur("active_interval", s.watch.ActiveInterval).
 		Dur("idle_interval", s.watch.IdleInterval).Msg("next week schedule watcher started")
 
+	// Дефолт поменялся на 30m, но окружение, собранное по старому примеру,
+	// пришло со своим значением и молча оставит детект изменений отставать
+	if s.watch.IdleInterval > maxChangeLag {
+		log.Warn().Dur("idle_interval", s.watch.IdleInterval).Dur("advised", maxChangeLag).
+			Msg("SCHEDULE_WATCH_IDLE_INTERVAL is too rare for schedule change detection")
+	}
+
 	// Первый прогон разносится случайной паузой: иначе перезапуск или раскатка
 	// нескольких инстансов бьёт по порталу всеми группами разом
 	if !sleep(ctx, time.Duration(rand.Int64N(int64(startupJitter)))) {
@@ -87,8 +98,41 @@ func (s *Service) RunNextWeekWatcher(ctx context.Context) {
 	}
 }
 
-// CheckNextWeek опрашивает портал по всем живым группам и фиксирует появление
-// расписания на следующую неделю. Один прогон, без цикла.
+// watchedWeek - неделя, за которой следит воркер.
+type watchedWeek struct {
+	start, end string
+	// detectPublish - ловить ли на этой неделе появление расписания. Для
+	// текущей недели такого события нет: она либо заполнена, либо каникулы
+	detectPublish bool
+}
+
+// watchedWeeks - недели одного прогона: текущая и следующая. Чистая функция.
+func watchedWeeks(now time.Time) []watchedWeek {
+	currentStart, currentEnd := collegetime.CurrentWeek(now)
+	nextStart, nextEnd := collegetime.NextWeek(now)
+
+	return []watchedWeek{
+		{start: currentStart, end: currentEnd},
+		{start: nextStart, end: nextEnd, detectPublish: true},
+	}
+}
+
+// eventsWithin оставляет занятия, попавшие в период. Ответ портала за две
+// недели делится по датам, а не по порядку: порядок портала нам ничего не
+// гарантирует, а даты есть у каждого занятия.
+func eventsWithin(events []domain.Event, start, end string) []domain.Event {
+	out := make([]domain.Event, 0, len(events))
+	for _, event := range events {
+		if event.Day >= start && event.Day <= end {
+			out = append(out, event)
+		}
+	}
+
+	return out
+}
+
+// CheckNextWeek опрашивает портал по всем живым группам и приводит состояния
+// отслеживаемых недель в соответствие с ответом. Один прогон, без цикла.
 func (s *Service) CheckNextWeek(ctx context.Context) error {
 	op := logger.NewLogOp(ctx, log, "CheckNextWeek")
 
@@ -112,9 +156,13 @@ func (s *Service) CheckNextWeek(ctx context.Context) error {
 		tracked[group] = true
 	}
 
-	weekStart, weekEnd := collegetime.NextWeek(time.Now())
-	op.Started().Strs("groups", groups).Str("week_start", weekStart).
-		Str("week_end", weekEnd).Msg("checking next week schedule")
+	// Момент берётся один на прогон: иначе прогон, начатый под полночь
+	// понедельника, обработал бы часть групп уже в другой паре недель
+	now := time.Now().UTC()
+
+	weeks := watchedWeeks(now)
+	op.Started().Strs("groups", groups).Str("from", weeks[0].start).
+		Str("to", weeks[len(weeks)-1].end).Msg("checking schedule weeks")
 
 	var published, failures int
 	for i, group := range groups {
@@ -125,61 +173,93 @@ func (s *Service) CheckNextWeek(ctx context.Context) error {
 			return ctx.Err()
 		}
 
-		appeared, err := s.checkGroupWeek(ctx, group, weekStart, weekEnd, tracked[group])
-		switch {
-		case err == nil:
-			failures = 0
+		// Обе недели берутся одним запросом: на двухнедельный период портал
+		// отвечает ровно тем же, чем на два недельных
+		events, err := s.portal.FetchSchedule(ctx, group, weeks[0].start, weeks[len(weeks)-1].end)
+		if err != nil {
+			switch {
+			case errors.Is(err, context.Canceled):
+				return err
+			case errors.Is(err, domain.ErrPortalUnavailable):
+				failures++
+				if ctx.Err() == nil {
+					op.Warn().Err(err).Str("group", group).Msg("college portal did not answer")
+				}
+				if failures >= portalFailureLimit {
+					op.Warn().Int("failures", failures).
+						Msg("college portal unavailable, aborting schedule check")
+					return nil
+				}
+			default:
+				// Счётчик отказов портала не сбрасываем: посторонняя ошибка не
+				// означает, что портал ожил
+				op.Failed(err).Str("group", group).Msg("failed to fetch schedule")
+			}
+			continue
+		}
+		failures = 0
+
+		var placed int
+		weeksDone := true
+		for _, week := range weeks {
+			weekEvents := eventsWithin(events, week.start, week.end)
+			placed += len(weekEvents)
+
+			appeared, err := s.checkGroupWeek(ctx, group, week, weekEvents,
+				week.detectPublish && tracked[group], now)
+			if err != nil {
+				op.Failed(err).Str("group", group).Str("week_start", week.start).
+					Msg("failed to check schedule week")
+				weeksDone = false
+				continue
+			}
 			if appeared {
 				published++
 			}
-		case errors.Is(err, context.Canceled):
-			return err
-		case errors.Is(err, domain.ErrPortalUnavailable):
-			failures++
-			if failures >= portalFailureLimit {
-				op.Warn().Int("failures", failures).
-					Msg("college portal unavailable, aborting next week check")
-				return nil
-			}
-		default:
-			// Счётчик отказов портала не сбрасываем: посторонняя ошибка не
-			// означает, что портал ожил
-			op.Failed(err).Str("group", group).Msg("failed to check next week schedule")
+		}
+
+		// Занятие без даты не попадает ни в одну неделю и молча теряется
+		if placed != len(events) {
+			op.Warn().Str("group", group).Int("dropped", len(events)-placed).
+				Msg("portal returned events outside the watched weeks")
+		}
+
+		// Отметка ставится только когда решения по неделям записаны: иначе
+		// группа станет знакомой без состояний, и следующий прогон объявит уже
+		// выложенную неделю только что появившейся
+		if !weeksDone {
+			continue
+		}
+		if err := s.tracked.Track(ctx, group, now); err != nil {
+			op.Failed(err).Str("group", group).Msg("failed to mark group as tracked")
 		}
 	}
 
 	op.Completed().Int("groups", len(groups)).Int("published", published).
-		Msg("next week schedule checked")
+		Msg("schedule weeks checked")
 
 	return nil
 }
 
-// checkGroupWeek опрашивает портал по одной группе и приводит состояние недели в
-// соответствие с ответом. true - расписание появилось именно на этом опросе.
+// checkGroupWeek приводит состояние одной недели группы в соответствие с
+// ответом портала. true - расписание появилось именно на этом опросе.
 func (s *Service) checkGroupWeek(
 	ctx context.Context,
-	group, weekStart, weekEnd string,
+	group string,
+	week watchedWeek,
+	events []domain.Event,
 	groupKnown bool,
+	now time.Time,
 ) (bool, error) {
 	op := logger.NewLogOp(ctx, log, "checkGroupWeek")
-
-	events, err := s.portal.FetchSchedule(ctx, group, weekStart, weekEnd)
-	if err != nil {
-		if errors.Is(err, domain.ErrPortalUnavailable) && ctx.Err() == nil {
-			op.Warn().Err(err).Str("group", group).Msg("college portal did not answer")
-		}
-		return false, err
-	}
-
-	now := time.Now().UTC()
 
 	// Снимок сохраняется только непустой: пустой заставил бы выдачу расписания
 	// отдавать при упавшем портале пустой кэш вместо честного отказа
 	if len(events) > 0 {
-		s.saveSchedule(ctx, op, GetScheduleInput{Group: group, Start: weekStart, End: weekEnd}, events, now)
+		s.saveSchedule(ctx, op, GetScheduleInput{Group: group, Start: week.start, End: week.end}, events, now)
 	}
 
-	state, err := s.states.Find(ctx, group, weekStart)
+	state, err := s.states.Find(ctx, group, week.start)
 	if err != nil && !errors.Is(err, domain.ErrWeekStateNotFound) {
 		return false, err
 	}
@@ -190,23 +270,12 @@ func (s *Service) checkGroupWeek(
 	if state != nil && state.Published && len(events) == 0 {
 		// Признак публикации не сбрасываем: пустой ответ бывает и при сбое
 		// портала, а откат дал бы второе уведомление об одной неделе
-		op.Warn().Str("group", group).Str("week_start", weekStart).
+		op.Warn().Str("group", group).Str("week_start", week.start).
 			Msg("published week came back empty, keeping the published flag")
 	}
 
-	appeared, err := s.applyWeekAction(ctx, decideWeek(state, groupKnown, len(events)),
-		group, weekStart, weekEnd, len(events), now)
-	if err != nil {
-		return false, err
-	}
-
-	// Отметка ставится после решения: следующий прогон уже считает группу
-	// знакомой, и новая неделя с расписанием пойдёт в уведомление, а не в baseline
-	if err := s.tracked.Track(ctx, group, now); err != nil {
-		op.Failed(err).Str("group", group).Msg("failed to mark group as tracked")
-	}
-
-	return appeared, nil
+	return s.applyWeekAction(ctx, decideWeek(state, groupKnown, len(events)),
+		group, week.start, week.end, len(events), now)
 }
 
 // applyWeekAction записывает решение по неделе в хранилище.

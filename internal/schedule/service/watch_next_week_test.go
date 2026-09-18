@@ -303,3 +303,61 @@ func TestApplyWeekActionRejectsUnknown(t *testing.T) {
 		t.Error("applyWeekAction() accepted an unknown action")
 	}
 }
+
+// TestWatchedWeeks - прогон ведёт текущую и следующую неделю, и появление
+// расписания ловится только на следующей.
+func TestWatchedWeeks(t *testing.T) {
+	weeks := watchedWeeks(time.Date(2026, time.September, 16, 12, 0, 0, 0, collegetime.TZ()))
+
+	if len(weeks) != 2 {
+		t.Fatalf("watchedWeeks() = %d недель, want 2", len(weeks))
+	}
+	if weeks[0].start != "2026-09-14" || weeks[0].end != "2026-09-20" {
+		t.Errorf("текущая неделя = %s..%s, want 2026-09-14..2026-09-20", weeks[0].start, weeks[0].end)
+	}
+	if weeks[1].start != "2026-09-21" || weeks[1].end != "2026-09-27" {
+		t.Errorf("следующая неделя = %s..%s, want 2026-09-21..2026-09-27", weeks[1].start, weeks[1].end)
+	}
+	if weeks[0].detectPublish {
+		t.Error("на текущей неделе публикацию ловить нечего")
+	}
+	if !weeks[1].detectPublish {
+		t.Error("на следующей неделе публикация должна детектиться")
+	}
+}
+
+// TestWatchedWeeksUsesCollegeTZ - воскресенье 19:30 UTC это уже понедельник в
+// Екатеринбурге: недели сдвинулись.
+func TestWatchedWeeksUsesCollegeTZ(t *testing.T) {
+	weeks := watchedWeeks(time.Date(2026, time.September, 20, 19, 30, 0, 0, time.UTC))
+
+	if weeks[0].start != "2026-09-21" || weeks[1].start != "2026-09-28" {
+		t.Errorf("watchedWeeks() = %s и %s, want 2026-09-21 и 2026-09-28",
+			weeks[0].start, weeks[1].start)
+	}
+}
+
+// TestEventsWithin - двухнедельная пачка портала делится по датам ровно на две
+// недели, а занятие без даты не попадает никуда.
+func TestEventsWithin(t *testing.T) {
+	events := []domain.Event{
+		{ClID: "1", Day: "2026-09-14"},
+		{ClID: "2", Day: "2026-09-20"},
+		{ClID: "3", Day: "2026-09-21"},
+		{ClID: "4", Day: "2026-09-27"},
+		{ClID: "5", Day: ""},
+	}
+
+	current := eventsWithin(events, "2026-09-14", "2026-09-20")
+	next := eventsWithin(events, "2026-09-21", "2026-09-27")
+
+	if len(current) != 2 || current[0].ClID != "1" || current[1].ClID != "2" {
+		t.Errorf("текущая неделя = %+v, want занятия 1 и 2", current)
+	}
+	if len(next) != 2 || next[0].ClID != "3" || next[1].ClID != "4" {
+		t.Errorf("следующая неделя = %+v, want занятия 3 и 4", next)
+	}
+	if len(current)+len(next) == len(events) {
+		t.Error("занятие без даты попало в неделю")
+	}
+}
