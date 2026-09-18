@@ -18,7 +18,7 @@ func (s *Service) GetNextWeekState(ctx context.Context, group string) (*domain.W
 
 	weekStart, _ := collegetime.NextWeek(time.Now())
 
-	state, err := s.states.Find(ctx, group, weekStart)
+	state, err := s.states.FindStatus(ctx, group, weekStart)
 	if err != nil {
 		if errors.Is(err, domain.ErrWeekStateNotFound) {
 			op.Debug().Str("group", group).Str("week_start", weekStart).

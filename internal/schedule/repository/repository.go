@@ -32,8 +32,10 @@ type SnapshotRepository interface {
 // WeekStateRepository - состояния недель расписания: по ним ловится появление
 // расписания и отсюда же берутся неразосланные уведомления.
 type WeekStateRepository interface {
-	// Find возвращает состояние недели группы.
+	// Find возвращает состояние недели группы вместе с базовым снимком.
 	Find(ctx context.Context, group, weekStart string) (*domain.WeekState, error)
+	// FindStatus возвращает состояние недели без базового снимка.
+	FindStatus(ctx context.Context, group, weekStart string) (*domain.WeekState, error)
 	// Create заводит состояние недели; уже заведённое - ErrWeekStateExists.
 	Create(ctx context.Context, state *domain.WeekState) error
 	// MarkPublished фиксирует появление расписания одной операцией и сообщает,
@@ -41,6 +43,18 @@ type WeekStateRepository interface {
 	MarkPublished(ctx context.Context, group, weekStart string, eventsCount int, at time.Time) (bool, error)
 	// Touch отмечает, что неделю опросили, не трогая признак публикации.
 	Touch(ctx context.Context, group, weekStart string, eventsCount int, at time.Time) error
+
+	// ReplaceBaseline меняет базовый снимок недели, только если он всё ещё тот,
+	// от которого считали разницу. false - снимок успел сменить другой инстанс.
+	ReplaceBaseline(ctx context.Context, group, weekStart, prevHash, nextHash string,
+		events []domain.Event) (bool, error)
+}
+
+// ChangeRepository - замеченные изменения расписания внутри недели. Источник
+// будущей рассылки: неразосланное ищется по notified_at:null.
+type ChangeRepository interface {
+	// Save записывает разницу, замеченную одним прогоном воркера.
+	Save(ctx context.Context, changes *domain.WeekChanges) error
 }
 
 // TrackedGroupRepository - отметки о том, с какого момента за группой следят.

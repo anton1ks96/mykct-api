@@ -112,18 +112,18 @@ type (
 
 	// ScheduleConfig содержит настройки портала колледжа и кэша расписания.
 	ScheduleConfig struct {
-		PortalURL     string              // Базовый адрес портала: https://portal.students.it-college.ru
+		PortalURL     string              // Базовый адрес портала: https://students.it-college.ru
 		PortalTimeout time.Duration       // Таймаут запроса к порталу, без него не сработает откат на кэш
 		CacheTTL      time.Duration       // Сколько снимок расписания хранится в MongoDB
-		Watch         ScheduleWatchConfig // Воркер, ловящий появление расписания на следующую неделю
+		Watch         ScheduleWatchConfig // Воркер расписания: публикация недели и изменения внутри неё
 	}
 
 	// ScheduleWatchConfig содержит настройки воркера, который ловит появление
-	// расписания на следующую неделю.
+	// расписания на следующую неделю и его изменения внутри недели.
 	ScheduleWatchConfig struct {
 		Enabled        bool                  // Запускать ли воркер: он ходит на портал, видимый не отовсюду
 		ActiveInterval time.Duration         // Интервал опроса в дни, когда расписание выкладывают
-		IdleInterval   time.Duration         // Интервал опроса в остальные дни
+		IdleInterval   time.Duration         // Интервал опроса в остальные дни, он же задержка детекта изменений
 		ActiveDays     map[time.Weekday]bool // Дни частого опроса
 		GroupDelay     time.Duration         // Пауза между группами, чтобы не бить по порталу пачкой
 		StateTTL       time.Duration         // Сколько живёт состояние недели в MongoDB
@@ -131,13 +131,13 @@ type (
 
 	// AttendanceConfig содержит настройки портала колледжа для посещаемости.
 	AttendanceConfig struct {
-		PortalURL     string        // Базовый адрес портала: https://portal.students.it-college.ru
+		PortalURL     string        // Базовый адрес портала: https://students.it-college.ru
 		PortalTimeout time.Duration // Таймаут запроса к порталу
 	}
 
 	// PerformanceConfig содержит настройки портала колледжа для успеваемости.
 	PerformanceConfig struct {
-		PortalURL     string        // Базовый адрес портала: https://portal.students.it-college.ru
+		PortalURL     string        // Базовый адрес портала: https://students.it-college.ru
 		PortalTimeout time.Duration // Таймаут запроса к порталу
 	}
 )
@@ -279,7 +279,7 @@ func setFromEnv(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("invalid SCHEDULE_WATCH_ACTIVE_INTERVAL: %w", err)
 	}
-	cfg.Schedule.Watch.IdleInterval, err = getEnvAsDuration("SCHEDULE_WATCH_IDLE_INTERVAL", 3*time.Hour)
+	cfg.Schedule.Watch.IdleInterval, err = getEnvAsDuration("SCHEDULE_WATCH_IDLE_INTERVAL", 30*time.Minute)
 	if err != nil {
 		return fmt.Errorf("invalid SCHEDULE_WATCH_IDLE_INTERVAL: %w", err)
 	}

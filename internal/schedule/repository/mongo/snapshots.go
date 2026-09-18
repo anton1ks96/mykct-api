@@ -74,50 +74,81 @@ type classDetailsDoc struct {
 	ExpiresAt time.Time      `bson:"expires_at"`
 }
 
-// toDomain переводит документ снимка в доменную модель.
-func (d *snapshotDoc) toDomain() *domain.Snapshot {
-	snapshot := &domain.Snapshot{
-		Group:     d.Group,
-		Start:     d.Start,
-		End:       d.End,
-		FetchedAt: d.FetchedAt,
+// toDomain переводит занятие документа в доменную модель.
+func (d *eventDoc) toDomain() domain.Event {
+	event := domain.Event{
+		ClID:  d.ClID,
+		Type:  d.Type,
+		Day:   d.Day,
+		Group: d.Group,
+		Topic: d.Topic,
+		Start: d.Start,
+		End:   d.End,
+		Room:  d.Room,
+		Color: d.Color,
+		Title: d.Title,
 	}
 
-	// Нулевой слайс сохраняем: портал так отвечает на пустой период
-	if d.Events == nil {
-		return snapshot
-	}
-
-	snapshot.Events = make([]domain.Event, 0, len(d.Events))
-	for _, e := range d.Events {
-		event := domain.Event{
-			ClID:  e.ClID,
-			Type:  e.Type,
-			Day:   e.Day,
-			Group: e.Group,
-			Topic: e.Topic,
-			Start: e.Start,
-			End:   e.End,
-			Room:  e.Room,
-			Color: e.Color,
-			Title: e.Title,
+	if len(d.SubGroup) > 0 {
+		event.SubGroup = make([]domain.SubGroup, 0, len(d.SubGroup))
+		for _, sg := range d.SubGroup {
+			event.SubGroup = append(event.SubGroup, domain.SubGroup{
+				SClID:  sg.SClID,
+				SGrID:  sg.SGrID,
+				SGCaID: sg.SGCaID,
+				STopic: sg.STopic,
+				STitle: sg.STitle,
+			})
 		}
-		if len(e.SubGroup) > 0 {
-			event.SubGroup = make([]domain.SubGroup, 0, len(e.SubGroup))
-			for _, sg := range e.SubGroup {
-				event.SubGroup = append(event.SubGroup, domain.SubGroup{
-					SClID:  sg.SClID,
-					SGrID:  sg.SGrID,
-					SGCaID: sg.SGCaID,
-					STopic: sg.STopic,
-					STitle: sg.STitle,
-				})
-			}
-		}
-		snapshot.Events = append(snapshot.Events, event)
 	}
 
-	return snapshot
+	return event
+}
+
+// eventFromDomain переводит занятие доменной модели в документ.
+func eventFromDomain(e domain.Event) eventDoc {
+	doc := eventDoc{
+		ClID:  e.ClID,
+		Type:  e.Type,
+		Day:   e.Day,
+		Group: e.Group,
+		Topic: e.Topic,
+		Start: e.Start,
+		End:   e.End,
+		Room:  e.Room,
+		Color: e.Color,
+		Title: e.Title,
+	}
+
+	if len(e.SubGroup) > 0 {
+		doc.SubGroup = make([]subGroupDoc, 0, len(e.SubGroup))
+		for _, sg := range e.SubGroup {
+			doc.SubGroup = append(doc.SubGroup, subGroupDoc{
+				SClID:  sg.SClID,
+				SGrID:  sg.SGrID,
+				SGCaID: sg.SGCaID,
+				STopic: sg.STopic,
+				STitle: sg.STitle,
+			})
+		}
+	}
+
+	return doc
+}
+
+// eventsToDomain переводит занятия документа в доменную модель. Нулевой слайс
+// сохраняется: портал так отвечает на пустой период.
+func eventsToDomain(docs []eventDoc) []domain.Event {
+	if docs == nil {
+		return nil
+	}
+
+	events := make([]domain.Event, 0, len(docs))
+	for _, doc := range docs {
+		events = append(events, doc.toDomain())
+	}
+
+	return events
 }
 
 // eventsFromDomain переводит занятия доменной модели в документы.
@@ -128,34 +159,21 @@ func eventsFromDomain(events []domain.Event) []eventDoc {
 
 	docs := make([]eventDoc, 0, len(events))
 	for _, e := range events {
-		doc := eventDoc{
-			ClID:  e.ClID,
-			Type:  e.Type,
-			Day:   e.Day,
-			Group: e.Group,
-			Topic: e.Topic,
-			Start: e.Start,
-			End:   e.End,
-			Room:  e.Room,
-			Color: e.Color,
-			Title: e.Title,
-		}
-		if len(e.SubGroup) > 0 {
-			doc.SubGroup = make([]subGroupDoc, 0, len(e.SubGroup))
-			for _, sg := range e.SubGroup {
-				doc.SubGroup = append(doc.SubGroup, subGroupDoc{
-					SClID:  sg.SClID,
-					SGrID:  sg.SGrID,
-					SGCaID: sg.SGCaID,
-					STopic: sg.STopic,
-					STitle: sg.STitle,
-				})
-			}
-		}
-		docs = append(docs, doc)
+		docs = append(docs, eventFromDomain(e))
 	}
 
 	return docs
+}
+
+// toDomain переводит документ снимка в доменную модель.
+func (d *snapshotDoc) toDomain() *domain.Snapshot {
+	return &domain.Snapshot{
+		Group:     d.Group,
+		Start:     d.Start,
+		End:       d.End,
+		Events:    eventsToDomain(d.Events),
+		FetchedAt: d.FetchedAt,
+	}
 }
 
 // SnapshotRepository хранит снимки ответов портала в MongoDB.

@@ -20,12 +20,13 @@ type ActiveGroups interface {
 
 // Service - юзкейсы расписания: выдача расписания группы и деталей занятия с
 // откатом на сохранённый снимок, пока портал колледжа недоступен, и детект
-// появления расписания на следующую неделю.
+// появления расписания на следующую неделю и его изменений внутри недели.
 type Service struct {
 	portal    repository.Portal
 	snapshots repository.SnapshotRepository
 	states    repository.WeekStateRepository
 	tracked   repository.TrackedGroupRepository
+	changes   repository.ChangeRepository
 	groups    ActiveGroups
 	watch     config.ScheduleWatchConfig
 }
@@ -36,6 +37,7 @@ func NewService(
 	snapshots repository.SnapshotRepository,
 	states repository.WeekStateRepository,
 	tracked repository.TrackedGroupRepository,
+	changes repository.ChangeRepository,
 	groups ActiveGroups,
 	watch config.ScheduleWatchConfig,
 ) *Service {
@@ -44,6 +46,7 @@ func NewService(
 		snapshots: snapshots,
 		states:    states,
 		tracked:   tracked,
+		changes:   changes,
 		groups:    groups,
 		watch:     watch,
 	}
