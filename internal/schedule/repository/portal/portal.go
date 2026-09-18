@@ -23,7 +23,7 @@ var log = logger.ComponentLogger("schedule.portal")
 
 // Пути сервисов портала.
 const (
-	schedulePath     = "/Services/schedule25.php"
+	schedulePath     = "/Services/schedule26.php"
 	classDetailsPath = "/Services/classdetails25.php"
 )
 
