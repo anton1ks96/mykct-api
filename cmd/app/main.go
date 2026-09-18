@@ -17,6 +17,9 @@ import (
 	authldap "github.com/anton1ks96/mykct-api/internal/auth/repository/ldap"
 	authmongo "github.com/anton1ks96/mykct-api/internal/auth/repository/mongo"
 	authservice "github.com/anton1ks96/mykct-api/internal/auth/service"
+	performancehandler "github.com/anton1ks96/mykct-api/internal/performance/handler"
+	performanceportal "github.com/anton1ks96/mykct-api/internal/performance/repository/portal"
+	performanceservice "github.com/anton1ks96/mykct-api/internal/performance/service"
 	"github.com/anton1ks96/mykct-api/internal/platform/config"
 	"github.com/anton1ks96/mykct-api/internal/platform/router"
 	"github.com/anton1ks96/mykct-api/internal/platform/router/middleware"
@@ -100,12 +103,17 @@ func main() {
 	attendanceSvc := attendanceservice.NewService(attendancePortal)
 	attendanceAPI := attendancehandler.NewHandler(attendanceSvc, authAPI.Auth())
 
+	// Модуль успеваемости
+	performancePortal := performanceportal.NewClient(cfg.Performance)
+	performanceSvc := performanceservice.NewService(performancePortal)
+	performanceAPI := performancehandler.NewHandler(performanceSvc, authAPI.Auth())
+
 	if err := mongodb.EnsureAll(context.Background(), authSessions, scheduleSnapshots, scheduleStates, scheduleTracked); err != nil {
 		logger.Fatal().Err(err).Msg("failed to ensure MongoDB indexes")
 	}
 
 	// Роутер и сервер
-	r := router.NewRouter(cfg, rateLimiter, authAPI, scheduleAPI, attendanceAPI)
+	r := router.NewRouter(cfg, rateLimiter, authAPI, scheduleAPI, attendanceAPI, performanceAPI)
 
 	engine, err := r.InitRoutes()
 	if err != nil {
