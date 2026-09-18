@@ -1,0 +1,66 @@
+services:
+  mongo:
+    container_name: mongo
+    image: mongo:8
+    restart: always
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    networks:
+      - mykct
+    volumes:
+      - mongo_data:/data/db
+    deploy:
+      resources:
+        limits:
+          cpus: "3"
+          memory: 6G
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mongosh --quiet --eval \"try { rs.status().ok } catch(e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}).ok }\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  app:
+    container_name: mykct-api
+    image: ghcr.io/anton1ks96/mykct-api:latest
+    restart: unless-stopped
+    stop_grace_period: 30s
+    env_file:
+      - .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017/?directConnection=true
+      GOMEMLIMIT: 1600MiB
+    ports:
+      - "127.0.0.1:${HTTP_PORT:-8080}:8080"
+    networks:
+      - mykct
+    depends_on:
+      mongo:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "3"
+          memory: 2G
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+networks:
+  mykct:
+    driver: bridge
+
+volumes:
+  mongo_data:
+    driver: local
