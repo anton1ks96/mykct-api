@@ -34,3 +34,25 @@ func NextMonday(now time.Time) time.Time {
 
 	return midnight.AddDate(0, 0, offset)
 }
+
+// CurrentWeek возвращает понедельник и воскресенье текущей недели по времени
+// колледжа, в формате ГГГГ-ММ-ДД.
+func CurrentWeek(now time.Time) (start, end string) {
+	monday := CurrentMonday(now)
+
+	return monday.Format(time.DateOnly), monday.AddDate(0, 0, 6).Format(time.DateOnly)
+}
+
+// CurrentMonday возвращает полночь понедельника текущей недели по времени
+// колледжа. Для самого понедельника это сегодня, в отличие от NextMonday.
+func CurrentMonday(now time.Time) time.Time {
+	now = now.In(tz)
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz)
+
+	return midnight.AddDate(0, 0, -(int(midnight.Weekday())+6)%7)
+}
+
+// Today возвращает сегодняшнюю дату по времени колледжа, ГГГГ-ММ-ДД.
+func Today(now time.Time) string {
+	return now.In(tz).Format(time.DateOnly)
+}
