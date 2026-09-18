@@ -45,7 +45,7 @@ type WeekStateRepository interface {
 	// ReplaceBaseline меняет базовый снимок недели, только если он всё ещё тот,
 	// от которого считали разницу. false - снимок успел сменить другой инстанс.
 	ReplaceBaseline(ctx context.Context, group, weekStart, prevHash, nextHash string,
-		events []domain.Event, at time.Time) (bool, error)
+		events []domain.Event) (bool, error)
 }
 
 // ChangeRepository - замеченные изменения расписания внутри недели. Источник

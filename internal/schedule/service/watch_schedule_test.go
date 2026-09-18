@@ -175,7 +175,6 @@ func (f *fakeWeekStates) ReplaceBaseline(
 	_ context.Context,
 	_, _, prevHash, nextHash string,
 	_ []domain.Event,
-	_ time.Time,
 ) (bool, error) {
 	f.baselinePrev, f.baselineNext = prevHash, nextHash
 	return f.baselineWon, nil

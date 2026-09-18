@@ -227,7 +227,6 @@ func (r *WeekStateRepository) ReplaceBaseline(
 	ctx context.Context,
 	group, weekStart, prevHash, nextHash string,
 	events []domain.Event,
-	at time.Time,
 ) (bool, error) {
 	op := logger.NewLogOp(ctx, log, "ReplaceBaseline")
 
@@ -240,11 +239,11 @@ func (r *WeekStateRepository) ReplaceBaseline(
 		filter["events_hash"] = prevHash
 	}
 
+	// Отметка опроса и TTL не трогаются: их в том же тике пишет Touch,
+	// MarkPublished или Create, и два писателя у одного поля не нужны
 	update := bson.M{"$set": bson.M{
-		"events":          eventsFromDomain(events),
-		"events_hash":     nextHash,
-		"last_checked_at": at,
-		"expires_at":      at.Add(r.ttl),
+		"events":      eventsFromDomain(events),
+		"events_hash": nextHash,
 	}}
 
 	res, err := r.coll.UpdateOne(ctx, filter, update)
