@@ -164,7 +164,7 @@ func (s *Service) CheckNextWeek(ctx context.Context) error {
 	op.Started().Strs("groups", groups).Str("from", weeks[0].start).
 		Str("to", weeks[len(weeks)-1].end).Msg("checking schedule weeks")
 
-	var published, failures int
+	var published, changed, failures int
 	for i, group := range groups {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -205,16 +205,20 @@ func (s *Service) CheckNextWeek(ctx context.Context) error {
 			weekEvents := eventsWithin(events, week.start, week.end)
 			placed += len(weekEvents)
 
-			appeared, err := s.checkGroupWeek(ctx, group, week, weekEvents,
+			appeared, weekChanges, err := s.checkGroupWeek(ctx, group, week, weekEvents,
 				week.detectPublish && tracked[group], now)
+
+			// Счётчики снимаются до разбора ошибки: публикация уже записана в
+			// хранилище, даже если следом упал детект изменений
+			if appeared {
+				published++
+			}
+			changed += weekChanges
+
 			if err != nil {
 				op.Failed(err).Str("group", group).Str("week_start", week.start).
 					Msg("failed to check schedule week")
 				weeksDone = false
-				continue
-			}
-			if appeared {
-				published++
 			}
 		}
 
@@ -236,13 +240,15 @@ func (s *Service) CheckNextWeek(ctx context.Context) error {
 	}
 
 	op.Completed().Int("groups", len(groups)).Int("published", published).
-		Msg("schedule weeks checked")
+		Int("changed", changed).Msg("schedule weeks checked")
 
 	return nil
 }
 
 // checkGroupWeek приводит состояние одной недели группы в соответствие с
-// ответом портала. true - расписание появилось именно на этом опросе.
+// ответом портала: ловит появление расписания и разницу с прошлым опросом.
+// Первое значение - расписание появилось именно на этом опросе, второе - сколько
+// изменений записано.
 func (s *Service) checkGroupWeek(
 	ctx context.Context,
 	group string,
@@ -250,7 +256,7 @@ func (s *Service) checkGroupWeek(
 	events []domain.Event,
 	groupKnown bool,
 	now time.Time,
-) (bool, error) {
+) (bool, int, error) {
 	op := logger.NewLogOp(ctx, log, "checkGroupWeek")
 
 	// Снимок сохраняется только непустой: пустой заставил бы выдачу расписания
@@ -261,7 +267,7 @@ func (s *Service) checkGroupWeek(
 
 	state, err := s.states.Find(ctx, group, week.start)
 	if err != nil && !errors.Is(err, domain.ErrWeekStateNotFound) {
-		return false, err
+		return false, 0, err
 	}
 	if errors.Is(err, domain.ErrWeekStateNotFound) {
 		state = nil
@@ -274,8 +280,20 @@ func (s *Service) checkGroupWeek(
 			Msg("published week came back empty, keeping the published flag")
 	}
 
-	return s.applyWeekAction(ctx, decideWeek(state, groupKnown, len(events)),
+	appeared, err := s.applyWeekAction(ctx, decideWeek(state, groupKnown, len(events)),
 		group, week.start, week.end, len(events), now)
+	if err != nil {
+		return false, 0, err
+	}
+
+	// Разница считается после решения о публикации: состояние недели к этому
+	// моменту уже заведено, и базису есть где лежать
+	changed, err := s.detectWeekChanges(ctx, group, week.start, state, events, now)
+	if err != nil {
+		return appeared, 0, err
+	}
+
+	return appeared, changed, nil
 }
 
 // applyWeekAction записывает решение по неделе в хранилище.

@@ -144,10 +144,9 @@ type fakeWeekStates struct {
 	markResult bool
 	createErr  error
 	// baselineWon - чем ответит смена базового снимка: выиграна ли гонка
-	baselineWon    bool
-	baselinePrev   string
-	baselineNext   string
-	baselineEvents []domain.Event
+	baselineWon  bool
+	baselinePrev string
+	baselineNext string
 }
 
 func (f *fakeWeekStates) Find(context.Context, string, string) (*domain.WeekState, error) {
@@ -175,10 +174,10 @@ func (f *fakeWeekStates) Touch(context.Context, string, string, int, time.Time) 
 func (f *fakeWeekStates) ReplaceBaseline(
 	_ context.Context,
 	_, _, prevHash, nextHash string,
-	events []domain.Event,
+	_ []domain.Event,
 	_ time.Time,
 ) (bool, error) {
-	f.baselinePrev, f.baselineNext, f.baselineEvents = prevHash, nextHash, events
+	f.baselinePrev, f.baselineNext = prevHash, nextHash
 	return f.baselineWon, nil
 }
 
