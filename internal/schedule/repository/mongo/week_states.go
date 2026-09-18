@@ -107,12 +107,27 @@ func (r *WeekStateRepository) EnsureIndexes(ctx context.Context) error {
 	return nil
 }
 
-// Find возвращает состояние недели группы.
+// Find возвращает состояние недели группы вместе с базовым снимком.
 func (r *WeekStateRepository) Find(ctx context.Context, group, weekStart string) (*domain.WeekState, error) {
+	return r.find(ctx, group, weekStart, options.FindOne())
+}
+
+// FindStatus возвращает состояние недели без базового снимка: статусу недели
+// занятия не нужны, а весят они десятки килобайт на документ.
+func (r *WeekStateRepository) FindStatus(ctx context.Context, group, weekStart string) (*domain.WeekState, error) {
+	return r.find(ctx, group, weekStart, options.FindOne().SetProjection(bson.M{"events": 0}))
+}
+
+// find читает состояние недели, отдавая выбор полей вызывающему.
+func (r *WeekStateRepository) find(
+	ctx context.Context,
+	group, weekStart string,
+	opts *options.FindOneOptionsBuilder,
+) (*domain.WeekState, error) {
 	op := logger.NewLogOp(ctx, log, "Find")
 
 	var doc weekStateDoc
-	err := r.coll.FindOne(ctx, weekStateFilter(group, weekStart)).Decode(&doc)
+	err := r.coll.FindOne(ctx, weekStateFilter(group, weekStart), opts).Decode(&doc)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			op.Debug().Str("group", group).Str("week_start", weekStart).Msg("week state not found")

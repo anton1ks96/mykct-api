@@ -153,6 +153,10 @@ func (f *fakeWeekStates) Find(context.Context, string, string) (*domain.WeekStat
 	return nil, domain.ErrWeekStateNotFound
 }
 
+func (f *fakeWeekStates) FindStatus(context.Context, string, string) (*domain.WeekState, error) {
+	return nil, domain.ErrWeekStateNotFound
+}
+
 func (f *fakeWeekStates) Create(_ context.Context, state *domain.WeekState) error {
 	if f.createErr != nil {
 		return f.createErr

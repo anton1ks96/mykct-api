@@ -32,8 +32,10 @@ type SnapshotRepository interface {
 // WeekStateRepository - состояния недель расписания: по ним ловится появление
 // расписания и отсюда же берутся неразосланные уведомления.
 type WeekStateRepository interface {
-	// Find возвращает состояние недели группы.
+	// Find возвращает состояние недели группы вместе с базовым снимком.
 	Find(ctx context.Context, group, weekStart string) (*domain.WeekState, error)
+	// FindStatus возвращает состояние недели без базового снимка.
+	FindStatus(ctx context.Context, group, weekStart string) (*domain.WeekState, error)
 	// Create заводит состояние недели; уже заведённое - ErrWeekStateExists.
 	Create(ctx context.Context, state *domain.WeekState) error
 	// MarkPublished фиксирует появление расписания одной операцией и сообщает,
