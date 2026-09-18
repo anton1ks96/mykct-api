@@ -152,6 +152,8 @@ func TestNextTickNeverBusyLoops(t *testing.T) {
 // fakeWeekStates - подставное хранилище состояний: запоминает, что записали.
 type fakeWeekStates struct {
 	created    *domain.WeekState
+	createdAll []*domain.WeekState
+	findErr    error
 	touched    bool
 	markCalled bool
 	markResult bool
@@ -163,6 +165,10 @@ type fakeWeekStates struct {
 }
 
 func (f *fakeWeekStates) Find(context.Context, string, string) (*domain.WeekState, error) {
+	if f.findErr != nil {
+		return nil, f.findErr
+	}
+
 	return nil, domain.ErrWeekStateNotFound
 }
 
@@ -175,6 +181,7 @@ func (f *fakeWeekStates) Create(_ context.Context, state *domain.WeekState) erro
 		return f.createErr
 	}
 	f.created = state
+	f.createdAll = append(f.createdAll, state)
 	return nil
 }
 
