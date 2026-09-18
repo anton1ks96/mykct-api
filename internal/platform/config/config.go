@@ -19,17 +19,18 @@ var DefaultTrustedProxies = []string{"172.16.0.0/12"}
 type (
 	// Config содержит полную конфигурацию сервиса.
 	Config struct {
-		Service    ServiceConfig
-		Logger     LoggerConfig
-		Server     ServerConfig
-		Sentry     SentryConfig
-		Mongo      MongoConfig
-		CORS       CORSConfig
-		RateLimit  RateLimitConfig
-		Auth       AuthConfig
-		LDAP       LDAPConfig
-		Schedule   ScheduleConfig
-		Attendance AttendanceConfig
+		Service     ServiceConfig
+		Logger      LoggerConfig
+		Server      ServerConfig
+		Sentry      SentryConfig
+		Mongo       MongoConfig
+		CORS        CORSConfig
+		RateLimit   RateLimitConfig
+		Auth        AuthConfig
+		LDAP        LDAPConfig
+		Schedule    ScheduleConfig
+		Attendance  AttendanceConfig
+		Performance PerformanceConfig
 	}
 
 	// ServiceConfig содержит общие настройки сервиса.
@@ -115,6 +116,12 @@ type (
 
 	// AttendanceConfig содержит настройки портала колледжа для посещаемости.
 	AttendanceConfig struct {
+		PortalURL     string        // Базовый адрес портала: https://portal.students.it-college.ru
+		PortalTimeout time.Duration // Таймаут запроса к порталу
+	}
+
+	// PerformanceConfig содержит настройки портала колледжа для успеваемости.
+	PerformanceConfig struct {
 		PortalURL     string        // Базовый адрес портала: https://portal.students.it-college.ru
 		PortalTimeout time.Duration // Таймаут запроса к порталу
 	}
@@ -260,6 +267,16 @@ func setFromEnv(cfg *Config) error {
 	cfg.Attendance.PortalTimeout, err = getEnvAsDuration("ATTENDANCE_PORTAL_TIMEOUT", 15*time.Second)
 	if err != nil {
 		return fmt.Errorf("invalid ATTENDANCE_PORTAL_TIMEOUT: %w", err)
+	}
+
+	// Успеваемость
+	cfg.Performance.PortalURL, err = getRequiredEnv("PERFORMANCE_PORTAL_URL")
+	if err != nil {
+		return err
+	}
+	cfg.Performance.PortalTimeout, err = getEnvAsDuration("PERFORMANCE_PORTAL_TIMEOUT", 15*time.Second)
+	if err != nil {
+		return fmt.Errorf("invalid PERFORMANCE_PORTAL_TIMEOUT: %w", err)
 	}
 
 	return nil
