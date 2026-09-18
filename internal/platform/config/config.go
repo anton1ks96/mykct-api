@@ -112,7 +112,7 @@ type (
 
 	// ScheduleConfig содержит настройки портала колледжа и кэша расписания.
 	ScheduleConfig struct {
-		PortalURL     string              // Базовый адрес портала: https://portal.students.it-college.ru
+		PortalURL     string              // Базовый адрес портала: https://students.it-college.ru
 		PortalTimeout time.Duration       // Таймаут запроса к порталу, без него не сработает откат на кэш
 		CacheTTL      time.Duration       // Сколько снимок расписания хранится в MongoDB
 		Watch         ScheduleWatchConfig // Воркер, ловящий появление расписания на следующую неделю
@@ -131,13 +131,13 @@ type (
 
 	// AttendanceConfig содержит настройки портала колледжа для посещаемости.
 	AttendanceConfig struct {
-		PortalURL     string        // Базовый адрес портала: https://portal.students.it-college.ru
+		PortalURL     string        // Базовый адрес портала: https://students.it-college.ru
 		PortalTimeout time.Duration // Таймаут запроса к порталу
 	}
 
 	// PerformanceConfig содержит настройки портала колледжа для успеваемости.
 	PerformanceConfig struct {
-		PortalURL     string        // Базовый адрес портала: https://portal.students.it-college.ru
+		PortalURL     string        // Базовый адрес портала: https://students.it-college.ru
 		PortalTimeout time.Duration // Таймаут запроса к порталу
 	}
 )
