@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"regexp"
 	"strings"
 
 	"github.com/anton1ks96/mykct-api/internal/auth/domain"
@@ -19,14 +20,6 @@ var _ repository.UserDirectory = (*Directory)(nil)
 
 var log = logger.ComponentLogger("auth.directory")
 
-// Типы групп в каталоге: атрибут description хранит тип, cn - значение.
-const (
-	groupTypeAcademic = "Группа"
-	groupTypeProfile  = "Профиль"
-	groupTypeSubgroup = "Подгруппа"
-	groupTypeEnglish  = "Английский язык подгруппа"
-)
-
 // Служебные группы, определяющие роль пользователя.
 const (
 	groupAdmins   = "admin"
@@ -34,8 +27,12 @@ const (
 	groupStudents = "students"
 )
 
-// academicGroupPrefix - префикс cn академической группы: ИТ25-11.
-const academicGroupPrefix = "ИТ"
+// Типы учебных групп различаются по формату cn: атрибута description у групп нет.
+var (
+	academicGroupPattern = regexp.MustCompile(`^ИТ\d{2}-\d{2}$`)  // ИТ25-11
+	englishGroupPattern  = regexp.MustCompile(`^[ABC]\d\.\d{2}$`) // B1.21
+	subgroupPattern      = regexp.MustCompile(`^Подгр\d$`)        // Подгр1
+)
 
 // validProfiles - допустимые профили обучения.
 var validProfiles = map[string]struct{}{
@@ -167,7 +164,7 @@ func (d *Directory) GetUserGroups(ctx context.Context, userID, password string) 
 		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases,
 		0, d.timeLimit(), false,
 		filter,
-		[]string{"cn", "description"},
+		[]string{"cn"},
 		nil,
 	)
 
@@ -181,18 +178,16 @@ func (d *Directory) GetUserGroups(ctx context.Context, userID, password string) 
 	for _, entry := range res.Entries {
 		cn := entry.GetAttributeValue("cn")
 
-		switch entry.GetAttributeValue("description") {
-		case groupTypeAcademic:
-			if strings.HasPrefix(cn, academicGroupPrefix) {
-				groups.AcademicGroup = cn
-			}
-		case groupTypeProfile:
-			if _, ok := validProfiles[cn]; ok {
-				groups.Profile = cn
-			}
-		case groupTypeSubgroup:
+		_, isProfile := validProfiles[cn]
+
+		switch {
+		case academicGroupPattern.MatchString(cn):
+			groups.AcademicGroup = cn
+		case isProfile:
+			groups.Profile = cn
+		case subgroupPattern.MatchString(cn):
 			groups.Subgroup = cn
-		case groupTypeEnglish:
+		case englishGroupPattern.MatchString(cn):
 			groups.EnglishGroup = cn
 		}
 	}
@@ -302,7 +297,7 @@ func (d *Directory) determineRole(memberOf []string, userDN string) string {
 			return domain.RoleAdmin
 		case cn == groupTeachers:
 			return domain.RoleTeacher
-		case inStudentsOU && (cn == groupStudents || strings.HasPrefix(cn, academicGroupPrefix)):
+		case inStudentsOU && (cn == groupStudents || academicGroupPattern.MatchString(cn)):
 			return domain.RoleStudent
 		}
 	}
