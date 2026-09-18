@@ -292,3 +292,43 @@ func changed(event domain.Event) domain.EventChange {
 func ptr(event domain.Event) *domain.Event {
 	return &event
 }
+
+// TestBaselineEventsKeepComparedFields - в базис кладётся ровно то, что
+// сравнивается: очистка не двигает отпечаток и не рождает разницу.
+func TestBaselineEventsKeepComparedFields(t *testing.T) {
+	full := week()
+	full[0].Topic = "Форсайт 2"
+	full[0].Color = "crimson"
+	full[0].SubGroup = []domain.SubGroup{
+		{SClID: "10", SGrID: "Подгр1", SGCaID: "2-5", STopic: "Практика", STitle: "РазработкаПО"},
+	}
+
+	stripped := baselineEvents(full)
+
+	if eventsHash(stripped) != eventsHash(full) {
+		t.Error("очистка базиса сдвинула отпечаток недели")
+	}
+	if changes := diffEvents(stripped, full); len(changes) != 0 {
+		t.Errorf("базис разошёлся с ответом портала: %+v", changes)
+	}
+	if stripped[0].Topic != "" || stripped[0].Color != "" || stripped[0].SubGroup[0].STopic != "" {
+		t.Errorf("несравниваемые поля остались в базисе: %+v", stripped[0])
+	}
+	if stripped[0].ClID == "" || stripped[0].Room == "" || stripped[0].SubGroup[0].SGCaID == "" {
+		t.Errorf("из базиса пропало нужное поле: %+v", stripped[0])
+	}
+}
+
+// TestBaselineEventsDoNotMutateSource - исходные занятия уходят в снимок и в
+// новую сторону изменения, чистить их на месте нельзя.
+func TestBaselineEventsDoNotMutateSource(t *testing.T) {
+	full := week()
+	full[0].Topic = "Практика"
+	full[0].SubGroup = []domain.SubGroup{{SClID: "10", SGrID: "Подгр1", SGCaID: "2-5", STopic: "Тема"}}
+
+	baselineEvents(full)
+
+	if full[0].Topic != "Практика" || full[0].SubGroup[0].STopic != "Тема" {
+		t.Errorf("исходное занятие испортили: %+v", full[0])
+	}
+}

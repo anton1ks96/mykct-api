@@ -54,7 +54,8 @@ func (s *Service) detectWeekChanges(
 
 	// 4. Базис меняет тот, кто от него же считал разницу. Проигравший инстанс
 	// свою разницу выбрасывает: её увидел и записал победитель
-	won, err := s.states.ReplaceBaseline(ctx, group, weekStart, prevHash, nextHash, events)
+	won, err := s.states.ReplaceBaseline(ctx, group, weekStart, prevHash, nextHash,
+		baselineEvents(events))
 	if err != nil {
 		return 0, err
 	}

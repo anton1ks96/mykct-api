@@ -50,6 +50,42 @@ func subGroupFingerprint(subgroups []domain.SubGroup) string {
 	return strings.Join(parts, ";")
 }
 
+// baselineEvents приводит занятия к виду, в котором они ложатся в базис.
+func baselineEvents(events []domain.Event) []domain.Event {
+	out := make([]domain.Event, 0, len(events))
+	for _, event := range events {
+		out = append(out, baselineEvent(event))
+	}
+
+	return out
+}
+
+// baselineEvent очищает поля, которых нет в отпечатке. Базис обновляется только
+// при расхождении отпечатков, поэтому тема или цвет пролежали бы в нём
+// устаревшими и уехали в уведомление как "было".
+func baselineEvent(event domain.Event) domain.Event {
+	event.Topic = ""
+	event.Color = ""
+
+	if len(event.SubGroup) == 0 {
+		return event
+	}
+
+	// Подгруппы копируются: тот же слайс уходит в снимок расписания и в
+	// новую сторону изменения, чистить его на месте нельзя
+	subgroups := make([]domain.SubGroup, 0, len(event.SubGroup))
+	for _, sg := range event.SubGroup {
+		subgroups = append(subgroups, domain.SubGroup{
+			SGrID:  sg.SGrID,
+			SGCaID: sg.SGCaID,
+			STitle: sg.STitle,
+		})
+	}
+	event.SubGroup = subgroups
+
+	return event
+}
+
 // eventsHash - отпечаток всей недели. Отпечатки занятий сортируются, поэтому
 // перестановка занятий местами хэш не двигает. Пустая неделя - пустой хэш.
 func eventsHash(events []domain.Event) string {
