@@ -66,11 +66,11 @@ func decideWeek(state *domain.WeekState, groupKnown bool, eventsCount int) weekA
 	return actionTouch
 }
 
-// RunNextWeekWatcher опрашивает портал, пока не отменят контекст. Интервал
+// RunScheduleWatcher опрашивает портал, пока не отменят контекст. Интервал
 // плавающий, поэтому не тикер: пауза считается перед каждым ожиданием.
-func (s *Service) RunNextWeekWatcher(ctx context.Context) {
+func (s *Service) RunScheduleWatcher(ctx context.Context) {
 	log.Info().Dur("active_interval", s.watch.ActiveInterval).
-		Dur("idle_interval", s.watch.IdleInterval).Msg("next week schedule watcher started")
+		Dur("idle_interval", s.watch.IdleInterval).Msg("schedule watcher started")
 
 	// Дефолт поменялся на 30m, но окружение, собранное по старому примеру,
 	// пришло со своим значением и молча оставит детект изменений отставать
@@ -82,17 +82,17 @@ func (s *Service) RunNextWeekWatcher(ctx context.Context) {
 	// Первый прогон разносится случайной паузой: иначе перезапуск или раскатка
 	// нескольких инстансов бьёт по порталу всеми группами разом
 	if !sleep(ctx, time.Duration(rand.Int64N(int64(startupJitter)))) {
-		log.Info().Msg("next week schedule watcher stopped")
+		log.Info().Msg("schedule watcher stopped")
 		return
 	}
 
 	for {
-		if err := s.CheckNextWeek(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Warn().Err(err).Msg("next week check failed")
+		if err := s.CheckWeeks(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Warn().Err(err).Msg("schedule check failed")
 		}
 
 		if !sleep(ctx, nextTick(time.Now(), s.watch)) {
-			log.Info().Msg("next week schedule watcher stopped")
+			log.Info().Msg("schedule watcher stopped")
 			return
 		}
 	}
@@ -131,10 +131,10 @@ func eventsWithin(events []domain.Event, start, end string) []domain.Event {
 	return out
 }
 
-// CheckNextWeek опрашивает портал по всем живым группам и приводит состояния
+// CheckWeeks опрашивает портал по всем живым группам и приводит состояния
 // отслеживаемых недель в соответствие с ответом. Один прогон, без цикла.
-func (s *Service) CheckNextWeek(ctx context.Context) error {
-	op := logger.NewLogOp(ctx, log, "CheckNextWeek")
+func (s *Service) CheckWeeks(ctx context.Context) error {
+	op := logger.NewLogOp(ctx, log, "CheckWeeks")
 
 	groups, err := s.groups.ActiveAcademicGroups(ctx)
 	if err != nil {
@@ -349,7 +349,7 @@ func (s *Service) applyWeekAction(
 
 	if published {
 		op.Info().Str("group", group).Str("week_start", weekStart).
-			Int("events", eventsCount).Msg("next week schedule published")
+			Int("events", eventsCount).Msg("week schedule published")
 	}
 
 	return published, nil

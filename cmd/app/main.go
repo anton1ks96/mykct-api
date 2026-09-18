@@ -130,10 +130,10 @@ func main() {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			scheduleSvc.RunNextWeekWatcher(workerCtx)
+			scheduleSvc.RunScheduleWatcher(workerCtx)
 		}()
 	} else {
-		logger.Info().Msg("next week schedule watcher is disabled")
+		logger.Info().Msg("schedule watcher is disabled")
 	}
 
 	go func() {
