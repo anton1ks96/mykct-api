@@ -43,14 +43,18 @@ const (
 	actionPublish
 )
 
-// decideWeek решает судьбу недели по её состоянию, знакомству с группой и числу
-// занятий. Чистая функция: детект проверяется тестами без портала и MongoDB.
-func decideWeek(state *domain.WeekState, groupKnown bool, eventsCount int) weekAction {
+// decideWeek решает судьбу недели по её состоянию, флагу детекта публикации,
+// знакомству с группой и числу занятий.
+func decideWeek(state *domain.WeekState, week watchedWeek, groupKnown bool, eventsCount int) weekAction {
+	// Появление расписания - событие следующей недели. На текущей оно не имеет
+	// смысла, поэтому она всегда заводится baseline и уведомлений не даёт
+	publish := week.detectPublish && groupKnown
+
 	if state == nil {
 		switch {
 		case eventsCount == 0:
 			return actionCreateTracking
-		case groupKnown:
+		case publish:
 			// Группу уже вели, а неделя новая: расписание по ней выложили при нас
 			return actionCreatePublished
 		default:
@@ -59,7 +63,7 @@ func decideWeek(state *domain.WeekState, groupKnown bool, eventsCount int) weekA
 		}
 	}
 
-	if !state.Published && eventsCount > 0 {
+	if week.detectPublish && !state.Published && eventsCount > 0 {
 		return actionPublish
 	}
 
@@ -206,7 +210,7 @@ func (s *Service) CheckWeeks(ctx context.Context) error {
 			placed += len(weekEvents)
 
 			appeared, weekChanges, err := s.checkGroupWeek(ctx, group, week, weekEvents,
-				week.detectPublish && tracked[group], now)
+				tracked[group], now)
 
 			// Счётчики снимаются до разбора ошибки: публикация уже записана в
 			// хранилище, даже если следом упал детект изменений
@@ -280,7 +284,7 @@ func (s *Service) checkGroupWeek(
 			Msg("published week came back empty, keeping the published flag")
 	}
 
-	appeared, err := s.applyWeekAction(ctx, decideWeek(state, groupKnown, len(events)),
+	appeared, err := s.applyWeekAction(ctx, decideWeek(state, week, groupKnown, len(events)),
 		group, week.start, week.end, len(events), now)
 	if err != nil {
 		return false, 0, err

@@ -33,29 +33,42 @@ func trackingState() *domain.WeekState {
 	}
 }
 
+// nextWeek - неделя, на которой ловится появление расписания.
+func nextWeek() watchedWeek {
+	return watchedWeek{start: "2026-09-21", end: "2026-09-27", detectPublish: true}
+}
+
+// currentWeek - текущая неделя, публикация на ней не детектится.
+func currentWeek() watchedWeek {
+	return watchedWeek{start: "2026-09-14", end: "2026-09-20"}
+}
+
 // TestDecideWeek закрепляет все переходы детекта: заведение, холодный старт,
 // смену недели у знакомой группы и монотонность признака публикации.
 func TestDecideWeek(t *testing.T) {
 	tests := []struct {
 		name        string
 		state       *domain.WeekState
+		week        watchedWeek
 		groupKnown  bool
 		eventsCount int
 		want        weekAction
 	}{
-		{"новая группа, расписания нет", nil, false, 0, actionCreateTracking},
-		{"новая группа, расписание есть", nil, false, 5, actionCreateBaseline},
-		{"знакомая группа, расписания нет", nil, true, 0, actionCreateTracking},
-		{"знакомая группа, новая неделя с расписанием", nil, true, 5, actionCreatePublished},
-		{"ждём расписание, его всё нет", trackingState(), true, 0, actionTouch},
-		{"ждём расписание, оно появилось", trackingState(), true, 5, actionPublish},
-		{"опубликованная неделя опустела", publishedState(), true, 0, actionTouch},
-		{"опубликованная неделя на месте", publishedState(), true, 30, actionTouch},
+		{"новая группа, расписания нет", nil, nextWeek(), false, 0, actionCreateTracking},
+		{"новая группа, расписание есть", nil, nextWeek(), false, 5, actionCreateBaseline},
+		{"знакомая группа, расписания нет", nil, nextWeek(), true, 0, actionCreateTracking},
+		{"знакомая группа, новая неделя с расписанием", nil, nextWeek(), true, 5, actionCreatePublished},
+		{"ждём расписание, его всё нет", trackingState(), nextWeek(), true, 0, actionTouch},
+		{"ждём расписание, оно появилось", trackingState(), nextWeek(), true, 5, actionPublish},
+		{"опубликованная неделя опустела", publishedState(), nextWeek(), true, 0, actionTouch},
+		{"опубликованная неделя на месте", publishedState(), nextWeek(), true, 30, actionTouch},
+		{"текущая неделя у знакомой группы", nil, currentWeek(), true, 5, actionCreateBaseline},
+		{"текущая неделя заполнилась", trackingState(), currentWeek(), true, 5, actionTouch},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := decideWeek(tt.state, tt.groupKnown, tt.eventsCount); got != tt.want {
+			if got := decideWeek(tt.state, tt.week, tt.groupKnown, tt.eventsCount); got != tt.want {
 				t.Errorf("decideWeek() = %v, want %v", got, tt.want)
 			}
 		})
