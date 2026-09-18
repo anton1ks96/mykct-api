@@ -36,6 +36,8 @@ type weekStateDoc struct {
 	NotifiedAt    *time.Time `bson:"notified_at"`
 	LastCheckedAt time.Time  `bson:"last_checked_at"`
 	ExpiresAt     time.Time  `bson:"expires_at"`
+	Events        []eventDoc `bson:"events,omitempty"`
+	EventsHash    string     `bson:"events_hash,omitempty"`
 }
 
 // toDomain переводит документ состояния в доменную модель.
@@ -49,6 +51,8 @@ func (d *weekStateDoc) toDomain() *domain.WeekState {
 		PublishedAt:   d.PublishedAt,
 		NotifiedAt:    d.NotifiedAt,
 		LastCheckedAt: d.LastCheckedAt,
+		Events:        eventsToDomain(d.Events),
+		EventsHash:    d.EventsHash,
 	}
 }
 
@@ -136,6 +140,8 @@ func (r *WeekStateRepository) Create(ctx context.Context, state *domain.WeekStat
 		NotifiedAt:    state.NotifiedAt,
 		LastCheckedAt: state.LastCheckedAt,
 		ExpiresAt:     state.LastCheckedAt.Add(r.ttl),
+		Events:        eventsFromDomain(state.Events),
+		EventsHash:    state.EventsHash,
 	}
 
 	if _, err := r.coll.InsertOne(ctx, doc); err != nil {
@@ -212,6 +218,42 @@ func (r *WeekStateRepository) Touch(
 	}
 
 	return nil
+}
+
+// ReplaceBaseline меняет базовый снимок недели, пока он тот же, от которого
+// считали разницу. Условие по старому отпечатку стоит в фильтре, поэтому при
+// нескольких инстансах разницей владеет ровно один.
+func (r *WeekStateRepository) ReplaceBaseline(
+	ctx context.Context,
+	group, weekStart, prevHash, nextHash string,
+	events []domain.Event,
+	at time.Time,
+) (bool, error) {
+	op := logger.NewLogOp(ctx, log, "ReplaceBaseline")
+
+	filter := weekStateFilter(group, weekStart)
+	if prevHash == "" {
+		// У состояний, заведённых до детекта изменений, поля нет вовсе, а null
+		// в фильтре матчит и отсутствующее поле
+		filter["events_hash"] = bson.M{"$in": bson.A{"", nil}}
+	} else {
+		filter["events_hash"] = prevHash
+	}
+
+	update := bson.M{"$set": bson.M{
+		"events":          eventsFromDomain(events),
+		"events_hash":     nextHash,
+		"last_checked_at": at,
+		"expires_at":      at.Add(r.ttl),
+	}}
+
+	res, err := r.coll.UpdateOne(ctx, filter, update)
+	if err != nil {
+		op.Failed(err).Str("group", group).Msg("failed to replace week baseline")
+		return false, fmt.Errorf("failed to replace week baseline: %w", err)
+	}
+
+	return res.ModifiedCount == 1, nil
 }
 
 // weekStateFilter адресует состояние недели группой и понедельником.

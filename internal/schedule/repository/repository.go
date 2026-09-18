@@ -41,6 +41,11 @@ type WeekStateRepository interface {
 	MarkPublished(ctx context.Context, group, weekStart string, eventsCount int, at time.Time) (bool, error)
 	// Touch отмечает, что неделю опросили, не трогая признак публикации.
 	Touch(ctx context.Context, group, weekStart string, eventsCount int, at time.Time) error
+
+	// ReplaceBaseline меняет базовый снимок недели, только если он всё ещё тот,
+	// от которого считали разницу. false - снимок успел сменить другой инстанс.
+	ReplaceBaseline(ctx context.Context, group, weekStart, prevHash, nextHash string,
+		events []domain.Event, at time.Time) (bool, error)
 }
 
 // TrackedGroupRepository - отметки о том, с какого момента за группой следят.

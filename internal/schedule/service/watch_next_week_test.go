@@ -143,6 +143,11 @@ type fakeWeekStates struct {
 	markCalled bool
 	markResult bool
 	createErr  error
+	// baselineWon - чем ответит смена базового снимка: выиграна ли гонка
+	baselineWon    bool
+	baselinePrev   string
+	baselineNext   string
+	baselineEvents []domain.Event
 }
 
 func (f *fakeWeekStates) Find(context.Context, string, string) (*domain.WeekState, error) {
@@ -165,6 +170,16 @@ func (f *fakeWeekStates) MarkPublished(context.Context, string, string, int, tim
 func (f *fakeWeekStates) Touch(context.Context, string, string, int, time.Time) error {
 	f.touched = true
 	return nil
+}
+
+func (f *fakeWeekStates) ReplaceBaseline(
+	_ context.Context,
+	_, _, prevHash, nextHash string,
+	events []domain.Event,
+	_ time.Time,
+) (bool, error) {
+	f.baselinePrev, f.baselineNext, f.baselineEvents = prevHash, nextHash, events
+	return f.baselineWon, nil
 }
 
 // applyAction прогоняет решение через сервис с подставным хранилищем.
