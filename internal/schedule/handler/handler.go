@@ -2,8 +2,10 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
+	"github.com/anton1ks96/mykct-api/internal/platform/httpapi"
 	"github.com/anton1ks96/mykct-api/internal/schedule/domain"
 	"github.com/anton1ks96/mykct-api/internal/schedule/service"
 	"github.com/gin-gonic/gin"
@@ -19,11 +21,38 @@ func NewHandler(svc *service.Service) *Handler {
 	return &Handler{service: svc}
 }
 
-// Init регистрирует маршруты модуля в группе /api/mykct/v1. Пути плоские и без
+// Init регистрирует маршруты модуля в группе /api/mykct/v1. Пути без
 // аутентификации: мобильные клиенты ходят за расписанием без токена.
 func (h *Handler) Init(v1 *gin.RouterGroup) {
-	v1.GET("/schedule", h.getSchedule)
+	schedule := v1.Group("/schedule")
+	{
+		schedule.GET("", h.getSchedule)
+		schedule.GET("/next-week", h.getNextWeekStatus)
+	}
 	v1.GET("/classdetails", h.getClassDetails)
+}
+
+// getNextWeekStatus отдаёт состояние следующей недели: появилось ли расписание
+// и когда это заметил воркер.
+func (h *Handler) getNextWeekStatus(c *gin.Context) {
+	var req nextWeekRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		abortWithValidationError(c, err)
+		return
+	}
+
+	state, err := h.service.GetNextWeekState(c.Request.Context(), req.Group)
+	if err != nil {
+		if errors.Is(err, domain.ErrWeekStateNotFound) {
+			c.AbortWithStatusJSON(http.StatusNotFound, httpapi.NewErrorf(CodeWeekNotTracked,
+				"Расписание на следующую неделю для группы %s пока не отслеживается", req.Group))
+			return
+		}
+		abortWithDomainError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, newNextWeekResponse(state))
 }
 
 // getSchedule отдаёт расписание группы за период вместе с признаком того,

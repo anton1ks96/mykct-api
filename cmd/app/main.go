@@ -92,7 +92,10 @@ func main() {
 	// Модуль расписания
 	schedulePortal := scheduleportal.NewClient(cfg.Schedule)
 	scheduleSnapshots := schedulemongo.NewSnapshotRepository(mongoClient, cfg.Mongo.Database, cfg.Schedule.CacheTTL)
-	scheduleSvc := scheduleservice.NewService(schedulePortal, scheduleSnapshots)
+	scheduleStates := schedulemongo.NewWeekStateRepository(mongoClient, cfg.Mongo.Database, cfg.Schedule.Watch.StateTTL)
+	scheduleTracked := schedulemongo.NewTrackedGroupRepository(mongoClient, cfg.Mongo.Database)
+	scheduleSvc := scheduleservice.NewService(schedulePortal, scheduleSnapshots, scheduleStates,
+		scheduleTracked, authSvc, cfg.Schedule.Watch)
 	scheduleAPI := schedulehandler.NewHandler(scheduleSvc)
 
 	// Модуль посещаемости
@@ -105,7 +108,7 @@ func main() {
 	performanceSvc := performanceservice.NewService(performancePortal)
 	performanceAPI := performancehandler.NewHandler(performanceSvc, authAPI.Auth())
 
-	if err := mongodb.EnsureAll(context.Background(), authSessions, scheduleSnapshots); err != nil {
+	if err := mongodb.EnsureAll(context.Background(), authSessions, scheduleSnapshots, scheduleStates, scheduleTracked); err != nil {
 		logger.Fatal().Err(err).Msg("failed to ensure MongoDB indexes")
 	}
 
@@ -120,7 +123,16 @@ func main() {
 
 	workerCtx, stopWorkers := context.WithCancel(context.Background())
 	var workers sync.WaitGroup
-	_ = workerCtx
+
+	if cfg.Schedule.Watch.Enabled {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			scheduleSvc.RunNextWeekWatcher(workerCtx)
+		}()
+	} else {
+		logger.Info().Msg("next week schedule watcher is disabled")
+	}
 
 	go func() {
 		if err := srv.Run(); err != nil && !errors.Is(err, http.ErrServerClosed) {
