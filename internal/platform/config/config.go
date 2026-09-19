@@ -19,6 +19,14 @@ var DefaultTrustedProxies = []string{"172.16.0.0/12"}
 // minWeekStateTTL - минимальный срок хранения состояния недели: неделя плюс запас.
 const minWeekStateTTL = 8 * 24 * time.Hour
 
+// minAliasSecretLen - минимальная длина секрета псевдонимов. Логины студентов
+// предсказуемы, поэтому короткий секрет перебирается вместе с ними.
+const minAliasSecretLen = 32
+
+// minLeaderboardParticipants - нижняя граница порога участников: в выборке
+// меньше пяти человек псевдонимы разбираются с первого взгляда.
+const minLeaderboardParticipants = 5
+
 type (
 	// Config содержит полную конфигурацию сервиса.
 	Config struct {
@@ -131,8 +139,22 @@ type (
 
 	// AttendanceConfig содержит настройки портала колледжа для посещаемости.
 	AttendanceConfig struct {
-		PortalURL     string        // Базовый адрес портала: https://students.it-college.ru
-		PortalTimeout time.Duration // Таймаут запроса к порталу
+		PortalURL     string            // Базовый адрес портала: https://students.it-college.ru
+		PortalTimeout time.Duration     // Таймаут запроса к порталу
+		Leaderboard   LeaderboardConfig // Анонимный рейтинг по серии посещений
+	}
+
+	// LeaderboardConfig содержит настройки анонимного рейтинга по серии посещений.
+	LeaderboardConfig struct {
+		Enabled         bool          // Включён ли рейтинг: маршрут и воркер поднимаются только с ним
+		AliasSecret     string        // Секрет HMAC для псевдонимов, наружу и в логи не попадает
+		TopSize         int           // Сколько строк отдаётся в топе
+		MinParticipants int           // Порог участников курса, ниже которого рейтинг не показывается
+		RefreshInterval time.Duration // Пауза между прогонами воркера
+		BatchSize       int           // Сколько участников пересчитывает один прогон
+		RefreshTTL      time.Duration // Серия свежее этого срока не пересчитывается
+		StudentDelay    time.Duration // Пауза между студентами, чтобы не бить по порталу пачкой
+		EmptyRunsLimit  int           // Пустых ответов портала подряд до гашения участника
 	}
 
 	// PerformanceConfig содержит настройки портала колледжа для успеваемости.
@@ -315,6 +337,50 @@ func setFromEnv(cfg *Config) error {
 	cfg.Attendance.PortalTimeout, err = getEnvAsDuration("ATTENDANCE_PORTAL_TIMEOUT", 15*time.Second)
 	if err != nil {
 		return fmt.Errorf("invalid ATTENDANCE_PORTAL_TIMEOUT: %w", err)
+	}
+
+	// Рейтинг посещаемости
+	cfg.Attendance.Leaderboard.Enabled = getEnvAsBool("ATTENDANCE_LEADERBOARD_ENABLED", false)
+	cfg.Attendance.Leaderboard.TopSize = getEnvAsInt("ATTENDANCE_LEADERBOARD_TOP_SIZE", 10)
+	cfg.Attendance.Leaderboard.MinParticipants = getEnvAsInt("ATTENDANCE_LEADERBOARD_MIN_PARTICIPANTS", 10)
+	cfg.Attendance.Leaderboard.BatchSize = getEnvAsInt("ATTENDANCE_LEADERBOARD_BATCH_SIZE", 40)
+	cfg.Attendance.Leaderboard.EmptyRunsLimit = getEnvAsInt("ATTENDANCE_LEADERBOARD_EMPTY_RUNS_LIMIT", 5)
+
+	cfg.Attendance.Leaderboard.RefreshInterval, err = getEnvAsDuration("ATTENDANCE_LEADERBOARD_REFRESH_INTERVAL", time.Hour)
+	if err != nil {
+		return fmt.Errorf("invalid ATTENDANCE_LEADERBOARD_REFRESH_INTERVAL: %w", err)
+	}
+	cfg.Attendance.Leaderboard.RefreshTTL, err = getEnvAsDuration("ATTENDANCE_LEADERBOARD_REFRESH_TTL", 6*time.Hour)
+	if err != nil {
+		return fmt.Errorf("invalid ATTENDANCE_LEADERBOARD_REFRESH_TTL: %w", err)
+	}
+	cfg.Attendance.Leaderboard.StudentDelay, err = getEnvAsDuration("ATTENDANCE_LEADERBOARD_STUDENT_DELAY", 2*time.Second)
+	if err != nil {
+		return fmt.Errorf("invalid ATTENDANCE_LEADERBOARD_STUDENT_DELAY: %w", err)
+	}
+
+	// Секрет спрашивается только с включённым рейтингом: без рейтинга он не нужен,
+	// а с ним псевдонимы без секрета сводятся к логинам перебором
+	if cfg.Attendance.Leaderboard.Enabled {
+		cfg.Attendance.Leaderboard.AliasSecret, err = getRequiredEnv("ATTENDANCE_LEADERBOARD_ALIAS_SECRET")
+		if err != nil {
+			return err
+		}
+		if len(cfg.Attendance.Leaderboard.AliasSecret) < minAliasSecretLen {
+			return fmt.Errorf("ATTENDANCE_LEADERBOARD_ALIAS_SECRET must be at least %d characters", minAliasSecretLen)
+		}
+		if cfg.Attendance.Leaderboard.MinParticipants < minLeaderboardParticipants {
+			return fmt.Errorf("ATTENDANCE_LEADERBOARD_MIN_PARTICIPANTS must be at least %d", minLeaderboardParticipants)
+		}
+		if cfg.Attendance.Leaderboard.TopSize < 1 {
+			return fmt.Errorf("ATTENDANCE_LEADERBOARD_TOP_SIZE must be positive")
+		}
+		if cfg.Attendance.Leaderboard.BatchSize < 1 {
+			return fmt.Errorf("ATTENDANCE_LEADERBOARD_BATCH_SIZE must be positive")
+		}
+		if cfg.Attendance.Leaderboard.EmptyRunsLimit < 1 {
+			return fmt.Errorf("ATTENDANCE_LEADERBOARD_EMPTY_RUNS_LIMIT must be positive")
+		}
 	}
 
 	// Успеваемость
