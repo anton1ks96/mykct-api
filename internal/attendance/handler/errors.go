@@ -19,6 +19,8 @@ const (
 	CodeLeaderboardForbidden = "LEADERBOARD_FORBIDDEN"
 	// CodeLeaderboardTooSmall - на курсе слишком мало участников для анонимности.
 	CodeLeaderboardTooSmall = "LEADERBOARD_TOO_SMALL"
+	// CodeLeaderboardDisabled - рейтинг выключен в настройках сервиса.
+	CodeLeaderboardDisabled = "LEADERBOARD_DISABLED"
 )
 
 // mapDomainError переводит доменную ошибку в статус и тело ответа. Наружу
@@ -28,6 +30,9 @@ func mapDomainError(err error) (int, httpapi.APIError) {
 	case errors.Is(err, domain.ErrPortalUnavailable):
 		return http.StatusServiceUnavailable, httpapi.NewError(CodeAttendanceUnavailable,
 			"Посещаемость недоступна: сервер колледжа не отвечает, попробуйте позже")
+	case errors.Is(err, domain.ErrLeaderboardDisabled):
+		return http.StatusNotFound, httpapi.NewError(CodeLeaderboardDisabled,
+			"Рейтинг посещаемости отключён")
 	case errors.Is(err, domain.ErrLeaderboardForbidden):
 		return http.StatusForbidden, httpapi.NewError(CodeLeaderboardForbidden,
 			"Рейтинг доступен только студентам с академической группой")
