@@ -105,7 +105,8 @@ func main() {
 	attendanceLeaderboard := attendancemongo.NewLeaderboardRepository(mongoClient, cfg.Mongo.Database)
 	attendanceSvc := attendanceservice.NewService(attendancePortal, attendanceLeaderboard, authSvc,
 		cfg.Attendance.Leaderboard)
-	attendanceAPI := attendancehandler.NewHandler(attendanceSvc, authAPI.Auth())
+	attendanceAPI := attendancehandler.NewHandler(attendanceSvc, authAPI.Auth(), rateLimiter,
+		cfg.Attendance.Leaderboard)
 
 	// Модуль успеваемости
 	performancePortal := performanceportal.NewClient(cfg.Performance)

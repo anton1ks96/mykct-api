@@ -11,8 +11,15 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
-// CodeAttendanceUnavailable - портал колледжа не отдал посещаемость.
-const CodeAttendanceUnavailable = "ATTENDANCE_UNAVAILABLE"
+// Коды ошибок модуля посещаемости.
+const (
+	// CodeAttendanceUnavailable - портал колледжа не отдал посещаемость.
+	CodeAttendanceUnavailable = "ATTENDANCE_UNAVAILABLE"
+	// CodeLeaderboardForbidden - рейтинг просит не студент либо студент без группы.
+	CodeLeaderboardForbidden = "LEADERBOARD_FORBIDDEN"
+	// CodeLeaderboardTooSmall - на курсе слишком мало участников для анонимности.
+	CodeLeaderboardTooSmall = "LEADERBOARD_TOO_SMALL"
+)
 
 // mapDomainError переводит доменную ошибку в статус и тело ответа. Наружу
 // уходит только описанный здесь текст: содержимое err не показываем.
@@ -21,6 +28,14 @@ func mapDomainError(err error) (int, httpapi.APIError) {
 	case errors.Is(err, domain.ErrPortalUnavailable):
 		return http.StatusServiceUnavailable, httpapi.NewError(CodeAttendanceUnavailable,
 			"Посещаемость недоступна: сервер колледжа не отвечает, попробуйте позже")
+	case errors.Is(err, domain.ErrLeaderboardForbidden):
+		return http.StatusForbidden, httpapi.NewError(CodeLeaderboardForbidden,
+			"Рейтинг доступен только студентам с академической группой")
+	case errors.Is(err, domain.ErrLeaderboardTooSmall):
+		// Числа участников в ответе нет: оно само по себе говорит, насколько
+		// малой выборкой можно опознать человека в рейтинге курса
+		return http.StatusConflict, httpapi.NewError(CodeLeaderboardTooSmall,
+			"Рейтинг вашего курса откроется, когда в нём наберётся достаточно участников")
 	default:
 		return http.StatusInternalServerError, httpapi.InternalError()
 	}

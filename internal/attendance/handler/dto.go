@@ -91,3 +91,46 @@ func newStreakResponse(s *domain.Streak) streakResponse {
 		PeriodEnd:         s.PeriodEnd,
 	}
 }
+
+// leaderboardEntry - строка анонимного рейтинга. Здесь не должно появиться ни
+// логина, ни ФИО, ни группы, ни дат: каждое такое поле - зацепка, по которой
+// псевдоним сопоставляется с человеком, а одной даты последнего посещения
+// хватает, чтобы разобрать половину таблицы.
+type leaderboardEntry struct {
+	Rank          int    `json:"rank"` // Место, спортивное: равные серии делят одно
+	Alias         string `json:"alias"`
+	CurrentStreak int    `json:"current_streak"`
+	IsMe          bool   `json:"is_me"`
+}
+
+// leaderboardResponse - топ курса, собственная строка студента и размер когорты.
+type leaderboardResponse struct {
+	Top          []leaderboardEntry `json:"top"`
+	Me           leaderboardEntry   `json:"me"`
+	Participants int                `json:"participants"`
+}
+
+// newLeaderboardEntry переводит строку рейтинга в DTO ответа.
+func newLeaderboardEntry(e domain.Entry) leaderboardEntry {
+	return leaderboardEntry{
+		Rank:          e.Rank,
+		Alias:         e.Alias,
+		CurrentStreak: e.CurrentStreak,
+		IsMe:          e.IsMe,
+	}
+}
+
+// newLeaderboardResponse переводит рейтинг в DTO ответа. Топ - массив, поэтому
+// пустой отдаётся как [], а не null.
+func newLeaderboardResponse(board *domain.Leaderboard) leaderboardResponse {
+	top := make([]leaderboardEntry, 0, len(board.Top))
+	for _, entry := range board.Top {
+		top = append(top, newLeaderboardEntry(entry))
+	}
+
+	return leaderboardResponse{
+		Top:          top,
+		Me:           newLeaderboardEntry(board.Me),
+		Participants: board.Participants,
+	}
+}
