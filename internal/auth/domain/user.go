@@ -49,3 +49,10 @@ func NewUserExtended(user *User, groups *UserGroups) *UserExtended {
 		EnglishGroup:  groups.EnglishGroup,
 	}
 }
+
+// ActiveStudent - студент с живой refresh-сессией. Снимок для других модулей
+// монолита: ни токенов, ни ФИО.
+type ActiveStudent struct {
+	UserID        string // Логин: i24s0291
+	AcademicGroup string // Академическая группа: ИТ25-11
+}

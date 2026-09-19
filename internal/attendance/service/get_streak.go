@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/anton1ks96/mykct-api/internal/attendance/domain"
@@ -11,23 +12,92 @@ import (
 	"github.com/anton1ks96/mykct-api/pkg/logger"
 )
 
-// GetStreak возвращает серию посещений студента с начала учебного года по сегодня.
-func (s *Service) GetStreak(ctx context.Context, login string) (*domain.Streak, error) {
+// participantRefreshTimeout - предел на запись строки рейтинга в фоне.
+const participantRefreshTimeout = 5 * time.Second
+
+// GetStreak возвращает серию посещений студента с начала учебного года по сегодня
+// и попутно освежает его строку в рейтинге.
+func (s *Service) GetStreak(ctx context.Context, input GetStreakInput) (*domain.Streak, error) {
 	op := logger.NewLogOp(ctx, log, "GetStreak")
 
 	start, end := academicYearPeriod(time.Now())
 
-	records, err := s.fetchAttendance(ctx, op, login, start, end)
+	// Время забора берётся до похода на портал: по нему решается, чьи данные
+	// свежее, когда портал отвечает долго
+	fetchedAt := time.Now()
+
+	records, err := s.fetchAttendance(ctx, op, input.Login, start, end)
 	if err != nil {
 		return nil, err
 	}
 
 	streak := calculateStreak(records, start, end)
 
-	op.Completed().Str("login", login).Int("current_streak", streak.CurrentStreak).
-		Int("school_days", streak.TotalSchoolDays).Msg("attendance streak calculated")
+	// Серия в одном событии с логином связала бы журнал с публичной таблицей
+	// рейтинга: она сортируется по той же величине, и записи соединяются по ней
+	op.Completed().Str("login", input.Login).Msg("attendance streak calculated")
+
+	// Рейтинг - побочный эффект выдачи серии, клиент не должен его ждать
+	go s.refreshParticipant(ctx, input, streak, fetchedAt)
 
 	return &streak, nil
+}
+
+// refreshParticipant освежает строку студента в рейтинге его собственным
+// запросом: поход на портал уже оплачен, второй раз за тем же ходить незачем.
+// Выполняется в отдельной горутине, ошибки только логируются.
+func (s *Service) refreshParticipant(
+	ctx context.Context,
+	input GetStreakInput,
+	streak domain.Streak,
+	fetchedAt time.Time,
+) {
+	if !s.cfg.Enabled {
+		return
+	}
+
+	// Пустой курс - это преподаватель или студент без группы в токене: в
+	// рейтинге таким участвовать не с кем
+	course := courseFromGroup(input.AcademicGroup)
+	if course == "" {
+		return
+	}
+
+	// Период без единого учебного дня даёт нулевую серию на непустом ответе -
+	// так выглядит 1 сентября и неделя сплошных уважительных пропусков. Записать
+	// такой ноль значит обнулить серию всему курсу разом
+	if streak.TotalSchoolDays == 0 {
+		return
+	}
+
+	// Горутина переживает и ответ клиенту, и обрыв соединения: серия уже
+	// посчитана, терять её вместе с контекстом запроса незачем
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), participantRefreshTimeout)
+	defer cancel()
+
+	op := logger.NewLogOp(ctx, log, "refreshParticipant")
+
+	participant := domain.Participant{
+		Login:         input.Login,
+		AcademicGroup: strings.TrimSpace(input.AcademicGroup),
+		Course:        course,
+	}
+	if err := s.leaderboard.Register(ctx, &participant); err != nil {
+		op.Warn().Err(err).Str("login", input.Login).Msg("failed to register leaderboard participant")
+		return
+	}
+	// Заход студента - единственный путь обратно в рейтинг для погашенного логина
+	if err := s.leaderboard.Reactivate(ctx, input.Login); err != nil {
+		op.Warn().Err(err).Str("login", input.Login).Msg("failed to reactivate leaderboard participant")
+		return
+	}
+
+	if err := s.leaderboard.SaveStreak(ctx, input.Login, streak, fetchedAt); err != nil {
+		op.Warn().Err(err).Str("login", input.Login).Msg("failed to refresh leaderboard streak")
+		return
+	}
+
+	op.Debug().Str("login", input.Login).Msg("leaderboard row refreshed")
 }
 
 // academicYearPeriod возвращает период с 1 сентября текущего учебного года по

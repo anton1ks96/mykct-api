@@ -234,6 +234,54 @@ func (r *SessionRepository) ActiveAcademicGroups(ctx context.Context) ([]string,
 	return result, nil
 }
 
+// ActiveStudents возвращает студентов с живыми сессиями без повторов: по ним
+// другие модули монолита узнают, кто вообще пользуется приложением.
+func (r *SessionRepository) ActiveStudents(ctx context.Context) ([]domain.ActiveStudent, error) {
+	op := logger.NewLogOp(ctx, log, "ActiveStudents")
+
+	filter := bson.M{
+		"role":           domain.RoleStudent,
+		"academic_group": bson.M{"$exists": true, "$ne": ""},
+		"expires_at":     bson.M{"$gt": time.Now()},
+	}
+	// Сессия заводится на каждое устройство, поэтому дубли неизбежны. Сортировка
+	// от поздних сессий к ранним оставляет самую свежую группу: студента могли
+	// перевести, и старая сессия помнит прежнюю
+	opts := options.Find().
+		SetProjection(bson.M{"user_id": 1, "academic_group": 1}).
+		SetSort(bson.D{{Key: "expires_at", Value: -1}})
+
+	cursor, err := r.coll.Find(ctx, filter, opts)
+	if err != nil {
+		op.Failed(err).Msg("failed to list active students")
+		return nil, fmt.Errorf("failed to list active students: %w", err)
+	}
+
+	var docs []sessionDoc
+	if err := cursor.All(ctx, &docs); err != nil {
+		op.Failed(err).Msg("failed to decode active students")
+		return nil, fmt.Errorf("failed to decode active students: %w", err)
+	}
+
+	seen := make(map[string]struct{}, len(docs))
+	students := make([]domain.ActiveStudent, 0, len(docs))
+	for _, doc := range docs {
+		group := strings.TrimSpace(doc.AcademicGroup)
+		if doc.UserID == "" || group == "" {
+			continue
+		}
+		if _, ok := seen[doc.UserID]; ok {
+			continue
+		}
+		seen[doc.UserID] = struct{}{}
+		students = append(students, domain.ActiveStudent{UserID: doc.UserID, AcademicGroup: group})
+	}
+
+	op.Debug().Int("students", len(students)).Msg("active students listed")
+
+	return students, nil
+}
+
 // RevokeAllByUser удаляет все сессии пользователя.
 func (r *SessionRepository) RevokeAllByUser(ctx context.Context, userID string) error {
 	op := logger.NewLogOp(ctx, log, "RevokeAllByUser")

@@ -152,6 +152,12 @@ func (c *Client) post(ctx context.Context, login string, payload, dst any) error
 	}
 	defer resp.Body.Close()
 
+	// Портал отвечает на ошибку кодом 200 с текстом, но не-2xx от прокси или
+	// фронта приходит с телом, которое тоже разбирается в пустой результат
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%w: unexpected status %d", domain.ErrPortalUnavailable, resp.StatusCode)
+	}
+
 	if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
 		return fmt.Errorf("%w: %v", domain.ErrPortalUnavailable, err)
 	}
