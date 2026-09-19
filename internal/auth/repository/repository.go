@@ -34,4 +34,6 @@ type SessionRepository interface {
 	RevokeAllByUser(ctx context.Context, userID string) error
 	// ActiveAcademicGroups возвращает академические группы живых сессий без повторов.
 	ActiveAcademicGroups(ctx context.Context) ([]string, error)
+	// ActiveStudents возвращает студентов с живыми сессиями без повторов.
+	ActiveStudents(ctx context.Context) ([]domain.ActiveStudent, error)
 }
