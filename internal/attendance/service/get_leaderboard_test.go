@@ -1,7 +1,9 @@
 package service
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/anton1ks96/mykct-api/internal/attendance/domain"
@@ -141,9 +143,14 @@ func TestRankCohortMeInsideTop(t *testing.T) {
 	}
 }
 
-// TestRankCohortTiesNotOrderedByLogin - при равных сериях порядок не должен
-// повторять алфавит логинов: иначе рейтинг выдаёт номера студенческих.
-func TestRankCohortTiesNotOrderedByLogin(t *testing.T) {
+// TestRankCohortTiesOrderedBySeed - при равных сериях порядок обязан совпадать с
+// порядком по HMAC-seed. Проверка именно на совпадение с seed, а не на отличие
+// от алфавита: сортировка по номеру студенческого отличается от алфавитной лишь
+// местами, и проверка "не алфавит" пропустила бы её, а вместе с ней и утечку
+// порядка зачисления.
+func TestRankCohortTiesOrderedBySeed(t *testing.T) {
+	aliases := newAliasMaker(testAliasSecret, "ИТ25")
+
 	logins := make([]string, 0, 40)
 	participants := make([]domain.Participant, 0, 40)
 	for i := range 40 {
@@ -152,27 +159,27 @@ func TestRankCohortTiesNotOrderedByLogin(t *testing.T) {
 		participants = append(participants, domain.Participant{Login: login, CurrentStreak: 7})
 	}
 
-	aliases := newAliasMaker(testAliasSecret, "ИТ25")
+	// Ожидаемый порядок считается независимо от rankCohort
+	wantLogins := slices.Clone(logins)
+	slices.SortFunc(wantLogins, func(a, b string) int {
+		return cmp.Compare(aliases.seed(a), aliases.seed(b))
+	})
+
 	board := rankCohort(participants, logins[0], aliases, len(logins))
 
-	// Строки анонимны, поэтому порядок логинов восстанавливается по псевдонимам
-	byAlias := make(map[string]int, len(logins))
-	for i, login := range logins {
-		byAlias[aliases.alias(login)] = i
-	}
-
-	ordered := true
-	for i, entry := range board.Top {
-		if byAlias[entry.Alias] != i {
-			ordered = false
-			break
+	for i, login := range wantLogins {
+		if board.Top[i].Alias != aliases.alias(login) {
+			t.Fatalf("Top[%d].Alias = %q, want the entry seeded at position %d",
+				i, board.Top[i].Alias, i)
 		}
 	}
-	if ordered {
-		t.Error("equal streaks are ordered by login, want a pseudorandom order")
+
+	// Порядок по seed не обязан отличаться от алфавитного в каждой паре, но
+	// совпасть целиком на сорока логинах он может лишь случайно
+	if slices.Equal(wantLogins, logins) {
+		t.Error("seed order equals login order, the fixture no longer proves anything")
 	}
 
-	// Все места равны: серия у всех одна
 	for i, entry := range board.Top {
 		if entry.Rank != 1 {
 			t.Errorf("Top[%d].Rank = %d, want 1 for equal streaks", i, entry.Rank)

@@ -17,6 +17,12 @@ import (
 func (s *Service) GetLeaderboard(ctx context.Context, input GetLeaderboardInput) (*domain.Leaderboard, error) {
 	op := logger.NewLogOp(ctx, log, "GetLeaderboard")
 
+	// Гард в сервисе, а не только в регистрации маршрута: с выключенной фичей
+	// секрет псевдонимов пуст, и HMAC на пустом ключе сводится к перебору логинов
+	if !s.cfg.Enabled {
+		return nil, domain.ErrLeaderboardDisabled
+	}
+
 	course := courseFromGroup(input.AcademicGroup)
 	if course == "" {
 		op.Debug().Msg("leaderboard requested without a course")
@@ -33,6 +39,12 @@ func (s *Service) GetLeaderboard(ctx context.Context, input GetLeaderboardInput)
 	if err := s.leaderboard.Register(ctx, &participant); err != nil {
 		op.Failed(err).Str("course", course).Msg("failed to register leaderboard participant")
 		return nil, fmt.Errorf("failed to register leaderboard participant: %w", err)
+	}
+	// Собственный заход - единственный путь обратно в рейтинг для погашенного
+	// логина, поэтому гашение снимается здесь, а не фоновым пересчётом
+	if err := s.leaderboard.Reactivate(ctx, input.Login); err != nil {
+		op.Failed(err).Str("course", course).Msg("failed to reactivate leaderboard participant")
+		return nil, fmt.Errorf("failed to reactivate leaderboard participant: %w", err)
 	}
 
 	participants, err := s.leaderboard.ByCourse(ctx, course)
@@ -104,8 +116,6 @@ func rankCohort(
 			IsMe:          participant.Login == me,
 		})
 	}
-
-	resolveAliasCollisions(entries)
 
 	board := domain.Leaderboard{Participants: len(entries)}
 
