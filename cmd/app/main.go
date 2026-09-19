@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	attendancehandler "github.com/anton1ks96/mykct-api/internal/attendance/handler"
+	attendancemongo "github.com/anton1ks96/mykct-api/internal/attendance/repository/mongo"
 	attendanceportal "github.com/anton1ks96/mykct-api/internal/attendance/repository/portal"
 	attendanceservice "github.com/anton1ks96/mykct-api/internal/attendance/service"
 	authhandler "github.com/anton1ks96/mykct-api/internal/auth/handler"
@@ -101,6 +102,7 @@ func main() {
 
 	// Модуль посещаемости
 	attendancePortal := attendanceportal.NewClient(cfg.Attendance)
+	attendanceLeaderboard := attendancemongo.NewLeaderboardRepository(mongoClient, cfg.Mongo.Database)
 	attendanceSvc := attendanceservice.NewService(attendancePortal)
 	attendanceAPI := attendancehandler.NewHandler(attendanceSvc, authAPI.Auth())
 
@@ -110,7 +112,7 @@ func main() {
 	performanceAPI := performancehandler.NewHandler(performanceSvc, authAPI.Auth())
 
 	if err := mongodb.EnsureAll(context.Background(), authSessions, scheduleSnapshots, scheduleStates, scheduleTracked,
-		scheduleChanges); err != nil {
+		scheduleChanges, attendanceLeaderboard); err != nil {
 		logger.Fatal().Err(err).Msg("failed to ensure MongoDB indexes")
 	}
 
