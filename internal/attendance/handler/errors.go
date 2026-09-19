@@ -21,6 +21,8 @@ const (
 	CodeLeaderboardTooSmall = "LEADERBOARD_TOO_SMALL"
 	// CodeLeaderboardDisabled - рейтинг выключен в настройках сервиса.
 	CodeLeaderboardDisabled = "LEADERBOARD_DISABLED"
+	// CodeLeaderboardNotReady - серия текущего студента ещё не рассчитана.
+	CodeLeaderboardNotReady = "LEADERBOARD_NOT_READY"
 )
 
 // mapDomainError переводит доменную ошибку в статус и тело ответа. Наружу
@@ -41,6 +43,9 @@ func mapDomainError(err error) (int, httpapi.APIError) {
 		// малой выборкой можно опознать человека в рейтинге курса
 		return http.StatusConflict, httpapi.NewError(CodeLeaderboardTooSmall,
 			"Рейтинг вашего курса откроется, когда в нём наберётся достаточно участников")
+	case errors.Is(err, domain.ErrLeaderboardNotReady):
+		return http.StatusConflict, httpapi.NewError(CodeLeaderboardNotReady,
+			"Ваше место в рейтинге ещё рассчитывается, попробуйте позже")
 	default:
 		return http.StatusInternalServerError, httpapi.InternalError()
 	}

@@ -232,8 +232,17 @@ func (r *LeaderboardRepository) MarkAttempt(ctx context.Context, login string) e
 // MarkEmpty засчитывает пустой ответ портала и гасит участника, когда их
 // накопилось limit подряд: логин отчислен или сменился. Из реестра участник не
 // удаляется, вернуть его в рейтинг может только собственный вход в приложение.
-func (r *LeaderboardRepository) MarkEmpty(ctx context.Context, login string, limit int) error {
+func (r *LeaderboardRepository) MarkEmpty(
+	ctx context.Context,
+	login string,
+	fetchedAt time.Time,
+	limit int,
+) error {
 	op := logger.NewLogOp(ctx, log, "MarkEmpty")
+
+	// Пустой ответ, полученный до уже сохранённой серии, устарел и не должен
+	// увеличивать счётчик или гасить участника.
+	filter := bson.M{"login": login, "streak_at": bson.M{"$lt": fetchedAt}}
 
 	// Отметка пересчёта двигается вместе со счётчиком: иначе погасший логин
 	// крутился бы в выборке воркера каждый прогон
@@ -241,13 +250,22 @@ func (r *LeaderboardRepository) MarkEmpty(ctx context.Context, login string, lim
 		"$inc": bson.M{"empty_runs": 1},
 		"$set": bson.M{"updated_at": time.Now()},
 	}
-	if _, err := r.coll.UpdateOne(ctx, bson.M{"login": login}, update); err != nil {
+	res, err := r.coll.UpdateOne(ctx, filter, update)
+	if err != nil {
 		op.Failed(err).Str("login", login).Msg("failed to count empty portal answer")
 		return fmt.Errorf("failed to count empty portal answer: %w", err)
 	}
+	if res.MatchedCount == 0 {
+		op.Debug().Str("login", login).Msg("empty portal answer skipped, a fresher fetch is stored")
+		return nil
+	}
 
-	res, err := r.coll.UpdateOne(ctx,
-		bson.M{"login": login, "empty_runs": bson.M{"$gte": limit}},
+	res, err = r.coll.UpdateOne(ctx,
+		bson.M{
+			"login":      login,
+			"streak_at":  bson.M{"$lt": fetchedAt},
+			"empty_runs": bson.M{"$gte": limit},
+		},
 		bson.M{"$set": bson.M{"inactive": true}},
 	)
 	if err != nil {

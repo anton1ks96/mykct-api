@@ -14,3 +14,6 @@ var ErrLeaderboardForbidden = errors.New("leaderboard is not available for this 
 // ErrLeaderboardTooSmall - на курсе слишком мало участников, чтобы рейтинг
 // оставался анонимным.
 var ErrLeaderboardTooSmall = errors.New("leaderboard cohort is too small")
+
+// ErrLeaderboardNotReady - серия текущего студента ещё не рассчитана.
+var ErrLeaderboardNotReady = errors.New("leaderboard entry is not ready")

@@ -135,7 +135,7 @@ func (s *Service) RefreshParticipants(ctx context.Context) error {
 		case refreshEmpty:
 			failures = 0
 			if err := write(ctx, func(c context.Context) error {
-				return s.leaderboard.MarkEmpty(c, participant.Login, s.cfg.EmptyRunsLimit)
+				return s.leaderboard.MarkEmpty(c, participant.Login, fetchedAt, s.cfg.EmptyRunsLimit)
 			}); err != nil {
 				op.Warn().Err(err).Str("login", participant.Login).
 					Msg("failed to mark empty portal answer")

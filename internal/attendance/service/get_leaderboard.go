@@ -61,6 +61,10 @@ func (s *Service) GetLeaderboard(ctx context.Context, input GetLeaderboardInput)
 	}
 
 	board := rankCohort(participants, input.Login, newAliasMaker(s.aliasSecret, course), s.cfg.TopSize)
+	if !board.Me.IsMe {
+		op.Debug().Str("course", course).Msg("leaderboard entry is not ready")
+		return nil, domain.ErrLeaderboardNotReady
+	}
 
 	op.Completed().Str("course", course).Int("participants", board.Participants).
 		Int("top", len(board.Top)).Msg("leaderboard built")

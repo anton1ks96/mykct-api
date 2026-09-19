@@ -28,7 +28,7 @@ type Leaderboard interface {
 	SaveStreak(ctx context.Context, login string, streak domain.Streak, fetchedAt time.Time) error
 	// MarkEmpty считает пустые ответы портала и гасит участника, когда их
 	// накопилось limit подряд.
-	MarkEmpty(ctx context.Context, login string, limit int) error
+	MarkEmpty(ctx context.Context, login string, fetchedAt time.Time, limit int) error
 	// MarkAttempt отмечает неудачную попытку пересчёта, не трогая серию: без неё
 	// нефетчащийся логин навсегда остаётся в голове очереди.
 	MarkAttempt(ctx context.Context, login string) error

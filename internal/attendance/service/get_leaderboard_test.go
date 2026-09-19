@@ -2,12 +2,55 @@ package service
 
 import (
 	"cmp"
+	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/anton1ks96/mykct-api/internal/attendance/domain"
+	"github.com/anton1ks96/mykct-api/internal/platform/config"
 )
+
+type leaderboardStub struct {
+	participants []domain.Participant
+}
+
+func (s *leaderboardStub) Register(context.Context, *domain.Participant) error { return nil }
+func (s *leaderboardStub) Reactivate(context.Context, string) error            { return nil }
+func (s *leaderboardStub) SaveStreak(context.Context, string, domain.Streak, time.Time) error {
+	return nil
+}
+func (s *leaderboardStub) MarkEmpty(context.Context, string, time.Time, int) error { return nil }
+func (s *leaderboardStub) MarkAttempt(context.Context, string) error               { return nil }
+func (s *leaderboardStub) ByCourse(context.Context, string) ([]domain.Participant, error) {
+	return s.participants, nil
+}
+func (s *leaderboardStub) Stale(context.Context, time.Time, int) ([]domain.Participant, error) {
+	return nil, nil
+}
+
+func TestGetLeaderboardWaitsForCallerEntry(t *testing.T) {
+	repo := &leaderboardStub{participants: cohort("a", 5, "b", 4, "c", 3, "d", 2, "e", 1)}
+	svc := &Service{
+		leaderboard: repo,
+		cfg: config.LeaderboardConfig{
+			Enabled:         true,
+			MinParticipants: 5,
+			TopSize:         3,
+		},
+		aliasSecret: testAliasSecret,
+	}
+
+	_, err := svc.GetLeaderboard(context.Background(), GetLeaderboardInput{
+		Login:         "me",
+		AcademicGroup: "ИТ25-11",
+	})
+	if !errors.Is(err, domain.ErrLeaderboardNotReady) {
+		t.Fatalf("GetLeaderboard() error = %v, want ErrLeaderboardNotReady", err)
+	}
+}
 
 // TestCourseFromGroup - курс выводится из года набора, а мусорная группа не
 // должна превращаться в курс, в который попадут чужие люди.
