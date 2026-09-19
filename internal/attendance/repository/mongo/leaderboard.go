@@ -45,7 +45,12 @@ type participantDoc struct {
 	EmptyRuns         int       `bson:"empty_runs"`
 	Inactive          bool      `bson:"inactive"`
 	RegisteredAt      time.Time `bson:"registered_at"`
-	UpdatedAt         time.Time `bson:"updated_at"`
+	// StreakAt - когда серия была забрана с портала. По нему отсекается запись
+	// более раннего забора поверх более позднего
+	StreakAt time.Time `bson:"streak_at"`
+	// UpdatedAt - когда участника в последний раз пытались пересчитать, удачно
+	// или нет. По нему строится очередь воркера
+	UpdatedAt time.Time `bson:"updated_at"`
 }
 
 // toDomain переводит документ в доменную модель.
@@ -119,12 +124,11 @@ func (r *LeaderboardRepository) Register(ctx context.Context, participant *domai
 
 	now := time.Now()
 	update := bson.M{
-		// Вход в приложение снимает отметку простоя: логин снова живой
+		// Счётчик простоя здесь не сбрасывается: воркер зовёт Register каждый
+		// прогон, и сброс не давал бы счётчику дорасти до предела
 		"$set": bson.M{
 			"academic_group": participant.AcademicGroup,
 			"course":         participant.Course,
-			"inactive":       false,
-			"empty_runs":     0,
 		},
 		// Нулевое время пересчёта ставит нового участника первым в очередь воркера
 		"$setOnInsert": bson.M{
@@ -133,7 +137,10 @@ func (r *LeaderboardRepository) Register(ctx context.Context, participant *domai
 			"longest_streak":      0,
 			"total_days_attended": 0,
 			"attendance_rate":     0.0,
+			"empty_runs":          0,
+			"inactive":            false,
 			"registered_at":       now,
+			"streak_at":           time.Time{},
 			"updated_at":          time.Time{},
 		},
 	}
@@ -149,18 +156,18 @@ func (r *LeaderboardRepository) Register(ctx context.Context, participant *domai
 	return nil
 }
 
-// SaveStreak записывает пересчитанную серию. Фильтр по времени отсекает поздний
-// ответ портала: медленный прогон воркера не затирает свежий результат,
-// записанный собственным запросом студента.
+// SaveStreak записывает серию, забранную с портала в момент fetchedAt. Сравнение
+// идёт по времени забора, а не записи: медленный ответ портала иначе затирал бы
+// более свежие данные просто потому, что дошёл позже.
 func (r *LeaderboardRepository) SaveStreak(
 	ctx context.Context,
 	login string,
 	streak domain.Streak,
-	at time.Time,
+	fetchedAt time.Time,
 ) error {
 	op := logger.NewLogOp(ctx, log, "SaveStreak")
 
-	filter := bson.M{"login": login, "updated_at": bson.M{"$lt": at}}
+	filter := bson.M{"login": login, "streak_at": bson.M{"$lt": fetchedAt}}
 	update := bson.M{"$set": bson.M{
 		"current_streak":      streak.CurrentStreak,
 		"longest_streak":      streak.LongestStreak,
@@ -169,16 +176,55 @@ func (r *LeaderboardRepository) SaveStreak(
 		"last_attended_date":  streak.LastAttendedDate,
 		"inactive":            false,
 		"empty_runs":          0,
-		"updated_at":          at,
+		"streak_at":           fetchedAt,
+		"updated_at":          time.Now(),
 	}}
 
-	if _, err := r.coll.UpdateOne(ctx, filter, update); err != nil {
+	res, err := r.coll.UpdateOne(ctx, filter, update)
+	if err != nil {
 		op.Failed(err).Str("login", login).Msg("failed to save participant streak")
 		return fmt.Errorf("failed to save participant streak: %w", err)
 	}
+	// Ноль совпадений - это не ошибка, а гонка: кто-то записал более свежий
+	// забор. Молча считать такую запись успехом нельзя, иначе прогон рапортует
+	// о пересчёте, которого не было
+	if res.MatchedCount == 0 {
+		op.Debug().Str("login", login).Msg("participant streak skipped, a fresher fetch is stored")
+		return nil
+	}
 
-	op.Debug().Str("login", login).Int("current_streak", streak.CurrentStreak).
-		Msg("participant streak saved")
+	op.Debug().Str("login", login).Msg("participant streak saved")
+
+	return nil
+}
+
+// Reactivate снимает отметку простоя. Зовётся только на собственный заход
+// студента: фоновый пересчёт воскрешать погасший логин не должен.
+func (r *LeaderboardRepository) Reactivate(ctx context.Context, login string) error {
+	op := logger.NewLogOp(ctx, log, "Reactivate")
+
+	update := bson.M{"$set": bson.M{"inactive": false, "empty_runs": 0}}
+	if _, err := r.coll.UpdateOne(ctx, bson.M{"login": login}, update); err != nil {
+		op.Failed(err).Str("login", login).Msg("failed to reactivate participant")
+		return fmt.Errorf("failed to reactivate participant: %w", err)
+	}
+
+	op.Debug().Str("login", login).Msg("participant reactivated")
+
+	return nil
+}
+
+// MarkAttempt отмечает неудачную попытку пересчёта. Серия остаётся прежней, но
+// участник уходит в конец очереди: иначе логин, который портал не отдаёт
+// никогда, вечно занимает её голову и не пускает остальных.
+func (r *LeaderboardRepository) MarkAttempt(ctx context.Context, login string) error {
+	op := logger.NewLogOp(ctx, log, "MarkAttempt")
+
+	update := bson.M{"$set": bson.M{"updated_at": time.Now()}}
+	if _, err := r.coll.UpdateOne(ctx, bson.M{"login": login}, update); err != nil {
+		op.Failed(err).Str("login", login).Msg("failed to mark refresh attempt")
+		return fmt.Errorf("failed to mark refresh attempt: %w", err)
+	}
 
 	return nil
 }
@@ -222,7 +268,13 @@ func (r *LeaderboardRepository) MarkEmpty(ctx context.Context, login string, lim
 func (r *LeaderboardRepository) ByCourse(ctx context.Context, course string) ([]domain.Participant, error) {
 	op := logger.NewLogOp(ctx, log, "ByCourse")
 
-	filter := bson.M{"course": course, "inactive": false}
+	// Участник без посчитанной серии - это ноль, неотличимый от других нулей:
+	// такие строки добивают когорту до порога, не давая никакой анонимности
+	filter := bson.M{
+		"course":    course,
+		"inactive":  false,
+		"streak_at": bson.M{"$gt": time.Time{}},
+	}
 	opts := options.Find().SetSort(bson.D{{Key: "current_streak", Value: -1}})
 
 	cursor, err := r.coll.Find(ctx, filter, opts)
