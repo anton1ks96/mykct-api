@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"strings"
 	"time"
 
 	"github.com/anton1ks96/mykct-api/internal/attendance/domain"
@@ -105,6 +106,9 @@ func (s *Service) RefreshParticipants(ctx context.Context) error {
 			return ctx.Err()
 		}
 
+		// Время забора берётся до похода на портал: по нему решается, чьи данные
+		// свежее, если студент параллельно открыл приложение
+		fetchedAt := time.Now()
 		records, err := s.portal.FetchAttendance(ctx, participant.Login, start, end)
 
 		switch decideRefresh(records, err) {
@@ -112,6 +116,14 @@ func (s *Service) RefreshParticipants(ctx context.Context) error {
 			failures++
 			op.Warn().Err(err).Str("login", participant.Login).
 				Msg("failed to fetch attendance for participant")
+			// Отметка попытки уводит логин в конец очереди. Без неё три логина,
+			// которых портал не отдаёт никогда, вечно занимают её голову и
+			// обрывают каждый прогон, а реестр не пересчитывается вовсе
+			if err := write(ctx, func(c context.Context) error {
+				return s.leaderboard.MarkAttempt(c, participant.Login)
+			}); err != nil {
+				op.Warn().Err(err).Str("login", participant.Login).Msg("failed to mark refresh attempt")
+			}
 			// Лежачий портал лежит для всех, дальше идти смысла нет. Прогон
 			// при этом не считается ошибкой: портал колледжа виден не отовсюду
 			// и падает штатно, а error-логи уезжают в Sentry
@@ -122,16 +134,31 @@ func (s *Service) RefreshParticipants(ctx context.Context) error {
 			}
 		case refreshEmpty:
 			failures = 0
-			if err := s.leaderboard.MarkEmpty(ctx, participant.Login, s.cfg.EmptyRunsLimit); err != nil {
+			if err := write(ctx, func(c context.Context) error {
+				return s.leaderboard.MarkEmpty(c, participant.Login, s.cfg.EmptyRunsLimit)
+			}); err != nil {
 				op.Warn().Err(err).Str("login", participant.Login).
 					Msg("failed to mark empty portal answer")
 			}
 		case refreshSave:
 			failures = 0
 			streak := calculateStreak(records, start, end)
-			if err := s.leaderboard.SaveStreak(ctx, participant.Login, streak, time.Now()); err != nil {
+			// Период без единого учебного дня даёт нулевую серию на непустом
+			// ответе - так выглядит 1 сентября. Записывать такой ноль нельзя:
+			// он обнулит серию всему курсу разом
+			if streak.TotalSchoolDays == 0 {
+				if err := write(ctx, func(c context.Context) error {
+					return s.leaderboard.MarkAttempt(c, participant.Login)
+				}); err != nil {
+					op.Warn().Err(err).Str("login", participant.Login).Msg("failed to mark refresh attempt")
+				}
+				break
+			}
+			if err := write(ctx, func(c context.Context) error {
+				return s.leaderboard.SaveStreak(c, participant.Login, streak, fetchedAt)
+			}); err != nil {
 				op.Warn().Err(err).Str("login", participant.Login).Msg("failed to save participant streak")
-				continue
+				break
 			}
 			refreshed++
 		}
@@ -155,6 +182,7 @@ func (s *Service) registerActiveStudents(ctx context.Context) error {
 		return fmt.Errorf("failed to list active students: %w", err)
 	}
 
+	var failed int
 	for _, student := range students {
 		course := courseFromGroup(student.AcademicGroup)
 		if course == "" {
@@ -163,15 +191,31 @@ func (s *Service) registerActiveStudents(ctx context.Context) error {
 
 		participant := domain.Participant{
 			Login:         student.UserID,
-			AcademicGroup: student.AcademicGroup,
+			AcademicGroup: strings.TrimSpace(student.AcademicGroup),
 			Course:        course,
 		}
+		// Одна неудачная запись не должна лишать регистрации весь оставшийся
+		// список: реестр постоянный, пропущенных подберёт следующий прогон
 		if err := s.leaderboard.Register(ctx, &participant); err != nil {
-			return fmt.Errorf("failed to register participant: %w", err)
+			failed++
+			continue
 		}
 	}
 
+	if failed > 0 {
+		return fmt.Errorf("failed to register %d of %d active students", failed, len(students))
+	}
+
 	return nil
+}
+
+// write выполняет запись результата контекстом, переживающим отмену воркера:
+// поход на портал уже оплачен, и терять его из-за shutdown незачем.
+func write(ctx context.Context, save func(context.Context) error) error {
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), participantRefreshTimeout)
+	defer cancel()
+
+	return save(writeCtx)
 }
 
 // nextRefreshTick - пауза до следующего прогона, не короче нижней границы.
