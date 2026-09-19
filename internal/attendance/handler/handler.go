@@ -53,7 +53,12 @@ func (h *Handler) getAttendance(c *gin.Context) {
 
 // getStreak отдаёт серию посещений студента с начала учебного года.
 func (h *Handler) getStreak(c *gin.Context) {
-	streak, err := h.service.GetStreak(c.Request.Context(), authctx.MustFrom(c).ID)
+	user := authctx.MustFrom(c)
+
+	streak, err := h.service.GetStreak(c.Request.Context(), service.GetStreakInput{
+		Login:         user.ID,
+		AcademicGroup: user.AcademicGroup,
+	})
 	if err != nil {
 		abortWithDomainError(c, err)
 		return
