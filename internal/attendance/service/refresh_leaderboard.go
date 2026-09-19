@@ -112,11 +112,13 @@ func (s *Service) RefreshParticipants(ctx context.Context) error {
 			failures++
 			op.Warn().Err(err).Str("login", participant.Login).
 				Msg("failed to fetch attendance for participant")
-			// Лежачий портал лежит для всех, дальше идти смысла нет
+			// Лежачий портал лежит для всех, дальше идти смысла нет. Прогон
+			// при этом не считается ошибкой: портал колледжа виден не отовсюду
+			// и падает штатно, а error-логи уезжают в Sentry
 			if failures >= portalFailureLimit {
-				op.Failed(err).Int("refreshed", refreshed).
-					Msg("leaderboard refresh aborted, portal keeps failing")
-				return fmt.Errorf("portal failed %d times in a row: %w", failures, err)
+				op.Warn().Int("failures", failures).Int("refreshed", refreshed).
+					Msg("college portal unavailable, aborting leaderboard refresh")
+				return nil
 			}
 		case refreshEmpty:
 			failures = 0
