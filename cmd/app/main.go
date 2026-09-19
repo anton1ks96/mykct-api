@@ -103,7 +103,8 @@ func main() {
 	// Модуль посещаемости
 	attendancePortal := attendanceportal.NewClient(cfg.Attendance)
 	attendanceLeaderboard := attendancemongo.NewLeaderboardRepository(mongoClient, cfg.Mongo.Database)
-	attendanceSvc := attendanceservice.NewService(attendancePortal)
+	attendanceSvc := attendanceservice.NewService(attendancePortal, attendanceLeaderboard, authSvc,
+		cfg.Attendance.Leaderboard)
 	attendanceAPI := attendancehandler.NewHandler(attendanceSvc, authAPI.Auth())
 
 	// Модуль успеваемости
