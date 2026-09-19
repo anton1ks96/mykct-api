@@ -109,8 +109,8 @@ func TestLeaderboardDefaults(t *testing.T) {
 	if lb.TopSize != 10 {
 		t.Errorf("TopSize = %d, want 10", lb.TopSize)
 	}
-	if lb.MinParticipants != 10 {
-		t.Errorf("MinParticipants = %d, want 10", lb.MinParticipants)
+	if lb.MinParticipants != 15 {
+		t.Errorf("MinParticipants = %d, want 15", lb.MinParticipants)
 	}
 	if lb.RefreshInterval != time.Hour {
 		t.Errorf("RefreshInterval = %v, want 1h", lb.RefreshInterval)
@@ -140,5 +140,34 @@ func TestLeaderboardMinParticipantsFloor(t *testing.T) {
 	var cfg Config
 	if err := setFromEnv(&cfg); err == nil {
 		t.Error("setFromEnv() accepted a participants threshold below the floor")
+	}
+}
+
+// TestLeaderboardTopSizeBelowThreshold - топ размером с порог публикует всю
+// когорту в тот момент, когда она наименьшая и опознаётся легче всего.
+func TestLeaderboardTopSizeBelowThreshold(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("ATTENDANCE_LEADERBOARD_ENABLED", "true")
+	t.Setenv("ATTENDANCE_LEADERBOARD_ALIAS_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("ATTENDANCE_LEADERBOARD_TOP_SIZE", "10")
+	t.Setenv("ATTENDANCE_LEADERBOARD_MIN_PARTICIPANTS", "10")
+
+	var cfg Config
+	if err := setFromEnv(&cfg); err == nil {
+		t.Error("setFromEnv() accepted a top size equal to the participants threshold")
+	}
+}
+
+// TestLeaderboardZeroDelayRejected - нулевая пауза снимает единственный тормоз
+// перед порталом колледжа.
+func TestLeaderboardZeroDelayRejected(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("ATTENDANCE_LEADERBOARD_ENABLED", "true")
+	t.Setenv("ATTENDANCE_LEADERBOARD_ALIAS_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("ATTENDANCE_LEADERBOARD_STUDENT_DELAY", "0s")
+
+	var cfg Config
+	if err := setFromEnv(&cfg); err == nil {
+		t.Error("setFromEnv() accepted a zero student delay")
 	}
 }

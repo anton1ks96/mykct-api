@@ -342,7 +342,7 @@ func setFromEnv(cfg *Config) error {
 	// Рейтинг посещаемости
 	cfg.Attendance.Leaderboard.Enabled = getEnvAsBool("ATTENDANCE_LEADERBOARD_ENABLED", false)
 	cfg.Attendance.Leaderboard.TopSize = getEnvAsInt("ATTENDANCE_LEADERBOARD_TOP_SIZE", 10)
-	cfg.Attendance.Leaderboard.MinParticipants = getEnvAsInt("ATTENDANCE_LEADERBOARD_MIN_PARTICIPANTS", 10)
+	cfg.Attendance.Leaderboard.MinParticipants = getEnvAsInt("ATTENDANCE_LEADERBOARD_MIN_PARTICIPANTS", 15)
 	cfg.Attendance.Leaderboard.BatchSize = getEnvAsInt("ATTENDANCE_LEADERBOARD_BATCH_SIZE", 40)
 	cfg.Attendance.Leaderboard.EmptyRunsLimit = getEnvAsInt("ATTENDANCE_LEADERBOARD_EMPTY_RUNS_LIMIT", 5)
 
@@ -374,6 +374,21 @@ func setFromEnv(cfg *Config) error {
 		}
 		if cfg.Attendance.Leaderboard.TopSize < 1 {
 			return fmt.Errorf("ATTENDANCE_LEADERBOARD_TOP_SIZE must be positive")
+		}
+		// Топ размером с порог публикует когорту целиком ровно тогда, когда она
+		// наименьшая, то есть когда рейтинг разбирается легче всего
+		if cfg.Attendance.Leaderboard.TopSize >= cfg.Attendance.Leaderboard.MinParticipants {
+			return fmt.Errorf("ATTENDANCE_LEADERBOARD_TOP_SIZE must be less than ATTENDANCE_LEADERBOARD_MIN_PARTICIPANTS")
+		}
+		if cfg.Attendance.Leaderboard.RefreshInterval <= 0 {
+			return fmt.Errorf("ATTENDANCE_LEADERBOARD_REFRESH_INTERVAL must be positive")
+		}
+		if cfg.Attendance.Leaderboard.RefreshTTL <= 0 {
+			return fmt.Errorf("ATTENDANCE_LEADERBOARD_REFRESH_TTL must be positive")
+		}
+		// Нулевая пауза снимает единственный тормоз перед порталом
+		if cfg.Attendance.Leaderboard.StudentDelay <= 0 {
+			return fmt.Errorf("ATTENDANCE_LEADERBOARD_STUDENT_DELAY must be positive")
 		}
 		if cfg.Attendance.Leaderboard.BatchSize < 1 {
 			return fmt.Errorf("ATTENDANCE_LEADERBOARD_BATCH_SIZE must be positive")
