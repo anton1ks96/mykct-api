@@ -5,15 +5,13 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/anton1ks96/mykct-api/internal/attendance/domain"
 )
 
 // testAliasSecret - секрет фиксирован, иначе тесты проверяли бы не то.
 var testAliasSecret = []byte("0123456789abcdef0123456789abcdef")
 
 // aliasFormat - псевдоним всегда два слова и шестнадцатеричный суффикс.
-var aliasFormat = regexp.MustCompile(`^[А-ЯЁ][а-яё]+ [А-ЯЁ][а-яё]+ 0x[0-9A-F]{3}$`)
+var aliasFormat = regexp.MustCompile(`^[А-ЯЁ][а-яё]+ [А-ЯЁ][а-яё]+ 0x[0-9A-F]{4}$`)
 
 // TestAliasDeterministic - один логин с одним секретом и курсом даёт один и тот
 // же псевдоним: студент не должен переименовываться между запросами.
@@ -91,52 +89,6 @@ func TestAliasSeedStable(t *testing.T) {
 	}
 	if maker.seed("i25s0042") == maker.seed("i25s0043") {
 		t.Error("seed() collides for different logins")
-	}
-}
-
-// TestResolveAliasCollisions - совпавшие псевдонимы разводятся суффиксом, первый
-// по рейтингу остаётся нетронутым, порядок строк не меняется.
-func TestResolveAliasCollisions(t *testing.T) {
-	tests := []struct {
-		name    string
-		aliases []string
-		want    []string
-	}{
-		{
-			name:    "без совпадений",
-			aliases: []string{"Быстрый Байт 0x001", "Умный Массив 0x002"},
-			want:    []string{"Быстрый Байт 0x001", "Умный Массив 0x002"},
-		},
-		{
-			name:    "пара совпадений",
-			aliases: []string{"Быстрый Байт 0x001", "Быстрый Байт 0x001"},
-			want:    []string{"Быстрый Байт 0x001", "Быстрый Байт 0x002"},
-		},
-		{
-			name:    "три подряд",
-			aliases: []string{"Умный Стек 0xFFF", "Умный Стек 0xFFF", "Умный Стек 0xFFF"},
-			want:    []string{"Умный Стек 0xFFF", "Умный Стек 0x000", "Умный Стек 0x001"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			entries := make([]domain.Entry, 0, len(tt.aliases))
-			for i, alias := range tt.aliases {
-				entries = append(entries, domain.Entry{Rank: i + 1, Alias: alias})
-			}
-
-			resolveAliasCollisions(entries)
-
-			for i, want := range tt.want {
-				if entries[i].Alias != want {
-					t.Errorf("entry %d alias = %q, want %q", i, entries[i].Alias, want)
-				}
-				if entries[i].Rank != i+1 {
-					t.Errorf("entry %d rank = %d, want %d", i, entries[i].Rank, i+1)
-				}
-			}
-		})
 	}
 }
 

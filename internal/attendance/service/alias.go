@@ -5,8 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
-
-	"github.com/anton1ks96/mykct-api/internal/attendance/domain"
 )
 
 // aliasScope - метка области рейтинга в HMAC. Другая область рейтинга обязана
@@ -14,8 +12,11 @@ import (
 // областей то, что каждая из них по отдельности скрывает.
 const aliasScope = "mykct.leaderboard.course.v1"
 
-// aliasSuffixRange - потолок числового суффикса псевдонима, 0x000..0xFFF.
-const aliasSuffixRange = 4096
+// aliasSuffixRange - потолок числового суффикса псевдонима, 0x0000..0xFFFF.
+// Пространство 96 x 96 x 65536 делает совпадение на курсе в 300 человек событием
+// с вероятностью 0.007%, поэтому разводить совпадения постобработкой не нужно:
+// такая постобработка привязывала бы псевдоним к составу когорты.
+const aliasSuffixRange = 65536
 
 // aliasMaker считает псевдонимы одной области рейтинга. Псевдоним нигде не
 // хранится: он детерминированно выводится из логина и секрета при каждой выдаче.
@@ -44,7 +45,7 @@ func (a aliasMaker) digest(login string) []byte {
 }
 
 // alias собирает псевдоним из дайджеста: прилагательное, существительное и
-// шестнадцатеричный суффикс - "Рекурсивный Компилятор 0x1A7".
+// шестнадцатеричный суффикс - "Рекурсивный Компилятор 0x1A7C".
 func (a aliasMaker) alias(login string) string {
 	d := a.digest(login)
 
@@ -52,7 +53,7 @@ func (a aliasMaker) alias(login string) string {
 	noun := aliasNouns[binary.BigEndian.Uint32(d[4:8])%uint32(len(aliasNouns))]
 	suffix := binary.BigEndian.Uint32(d[8:12]) % aliasSuffixRange
 
-	return fmt.Sprintf("%s %s 0x%03X", adjective, noun, suffix)
+	return fmt.Sprintf("%s %s 0x%04X", adjective, noun, suffix)
 }
 
 // seed - порядок участника внутри равных серий. Считается тем же дайджестом,
@@ -60,50 +61,4 @@ func (a aliasMaker) alias(login string) string {
 // показанного псевдонима. Порядок по логину выдавал бы номер студенческого.
 func (a aliasMaker) seed(login string) uint64 {
 	return binary.BigEndian.Uint64(a.digest(login)[12:20])
-}
-
-// resolveAliasCollisions разводит совпавшие псевдонимы, сдвигая суффикс у всех,
-// кроме первого по порядку рейтинга. Пространство псевдонимов велико, но на
-// когорте в сотни человек совпадение изредка случается и выглядит как баг.
-func resolveAliasCollisions(entries []domain.Entry) {
-	taken := make(map[string]struct{}, len(entries))
-
-	for i := range entries {
-		alias := entries[i].Alias
-		if _, busy := taken[alias]; !busy {
-			taken[alias] = struct{}{}
-			continue
-		}
-
-		// Сдвиг идёт по суффиксу: слова псевдонима остаются, меняется хвост
-		prefix, suffix, ok := splitAlias(alias)
-		if !ok {
-			taken[alias] = struct{}{}
-			continue
-		}
-		for shift := 1; shift < aliasSuffixRange; shift++ {
-			candidate := fmt.Sprintf("%s 0x%03X", prefix, (suffix+shift)%aliasSuffixRange)
-			if _, busy := taken[candidate]; busy {
-				continue
-			}
-			entries[i].Alias = candidate
-			taken[candidate] = struct{}{}
-			break
-		}
-	}
-}
-
-// splitAlias разбирает псевдоним на словесную часть и числовой суффикс.
-func splitAlias(alias string) (prefix string, suffix int, ok bool) {
-	for i := len(alias) - 1; i >= 0; i-- {
-		if alias[i] != ' ' {
-			continue
-		}
-		if _, err := fmt.Sscanf(alias[i+1:], "0x%X", &suffix); err != nil {
-			return "", 0, false
-		}
-		return alias[:i], suffix, true
-	}
-
-	return "", 0, false
 }
