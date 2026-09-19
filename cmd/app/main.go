@@ -139,6 +139,16 @@ func main() {
 		logger.Info().Msg("schedule watcher is disabled")
 	}
 
+	if cfg.Attendance.Leaderboard.Enabled {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			attendanceSvc.RunLeaderboardWorker(workerCtx)
+		}()
+	} else {
+		logger.Info().Msg("attendance leaderboard is disabled")
+	}
+
 	go func() {
 		if err := srv.Run(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Fatal().Err(err).Msg("failed to run HTTP server")
