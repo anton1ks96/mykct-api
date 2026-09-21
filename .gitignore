@@ -29,6 +29,7 @@ go.work.sum
 
 *-firebase-adminsdk-*.json
 serviceAccount*.json
+fcm.json
 
 # Editor/IDE
 .idea/

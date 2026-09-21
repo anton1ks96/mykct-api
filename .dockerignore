@@ -7,3 +7,4 @@ Dockerfile
 README.md
 *-firebase-adminsdk-*.json
 serviceAccount*.json
+fcm.json
