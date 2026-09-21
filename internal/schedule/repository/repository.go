@@ -48,6 +48,12 @@ type WeekStateRepository interface {
 	// от которого считали разницу. false - снимок успел сменить другой инстанс.
 	ReplaceBaseline(ctx context.Context, group, weekStart, prevHash, nextHash string,
 		events []domain.Event) (bool, error)
+
+	// PendingPublished возвращает недели, опубликованные не раньше since, о
+	// которых ещё не уведомляли. Базовый снимок не читается.
+	PendingPublished(ctx context.Context, since time.Time) ([]*domain.WeekState, error)
+	// MarkNotified отмечает рассылку по неделе и сообщает, этот ли вызов её отметил.
+	MarkNotified(ctx context.Context, group, weekStart string, at time.Time) (bool, error)
 }
 
 // ChangeRepository - замеченные изменения расписания внутри недели. Источник
@@ -55,6 +61,11 @@ type WeekStateRepository interface {
 type ChangeRepository interface {
 	// Save записывает разницу, замеченную одним прогоном воркера.
 	Save(ctx context.Context, changes *domain.WeekChanges) error
+	// Pending возвращает разницы, замеченные не раньше since, о которых ещё не
+	// уведомляли, от старых к новым.
+	Pending(ctx context.Context, since time.Time) ([]*domain.WeekChanges, error)
+	// MarkNotified отмечает рассылку разницы и сообщает, этот ли вызов её отметил.
+	MarkNotified(ctx context.Context, id string, at time.Time) (bool, error)
 }
 
 // TrackedGroupRepository - отметки о том, с какого момента за группой следят.

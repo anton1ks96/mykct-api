@@ -28,6 +28,7 @@ type Service struct {
 	tracked   repository.TrackedGroupRepository
 	changes   repository.ChangeRepository
 	groups    ActiveGroups
+	notifier  Notifier // nil - рассылка выключена, изменения только копятся
 	watch     config.ScheduleWatchConfig
 }
 
@@ -39,6 +40,7 @@ func NewService(
 	tracked repository.TrackedGroupRepository,
 	changes repository.ChangeRepository,
 	groups ActiveGroups,
+	notifier Notifier,
 	watch config.ScheduleWatchConfig,
 ) *Service {
 	return &Service{
@@ -48,6 +50,7 @@ func NewService(
 		tracked:   tracked,
 		changes:   changes,
 		groups:    groups,
+		notifier:  notifier,
 		watch:     watch,
 	}
 }

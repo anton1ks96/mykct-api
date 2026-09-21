@@ -42,6 +42,7 @@ type (
 		Schedule    ScheduleConfig
 		Attendance  AttendanceConfig
 		Performance PerformanceConfig
+		Push        PushConfig
 	}
 
 	// ServiceConfig содержит общие настройки сервиса.
@@ -155,6 +156,11 @@ type (
 		RefreshTTL      time.Duration // Серия свежее этого срока не пересчитывается
 		StudentDelay    time.Duration // Пауза между студентами, чтобы не бить по порталу пачкой
 		EmptyRunsLimit  int           // Пустых ответов портала подряд до гашения участника
+	}
+
+	// PushConfig содержит настройки push-уведомлений через FCM.
+	PushConfig struct {
+		CredentialsPath string // JSON-ключ сервисного аккаунта Firebase; пусто - рассылка выключена
 	}
 
 	// PerformanceConfig содержит настройки портала колледжа для успеваемости.
@@ -407,6 +413,9 @@ func setFromEnv(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("invalid PERFORMANCE_PORTAL_TIMEOUT: %w", err)
 	}
+
+	// Push-уведомления (опционально: без ключа устройства копятся, но рассылки нет)
+	cfg.Push.CredentialsPath = os.Getenv("FCM_CREDENTIALS_PATH")
 
 	return nil
 }

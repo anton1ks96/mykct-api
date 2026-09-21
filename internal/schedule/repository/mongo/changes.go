@@ -34,12 +34,13 @@ type changeDoc struct {
 // weekChangesDoc - разница, замеченная одним прогоном воркера. Время рассылки -
 // указатель без omitempty: рассылка ищет неразосланное по явному null.
 type weekChangesDoc struct {
-	Group      string      `bson:"group"`
-	WeekStart  string      `bson:"week_start"`
-	DetectedAt time.Time   `bson:"detected_at"`
-	Changes    []changeDoc `bson:"changes"`
-	NotifiedAt *time.Time  `bson:"notified_at"`
-	ExpiresAt  time.Time   `bson:"expires_at"`
+	ID         bson.ObjectID `bson:"_id,omitempty"`
+	Group      string        `bson:"group"`
+	WeekStart  string        `bson:"week_start"`
+	DetectedAt time.Time     `bson:"detected_at"`
+	Changes    []changeDoc   `bson:"changes"`
+	NotifiedAt *time.Time    `bson:"notified_at"`
+	ExpiresAt  time.Time     `bson:"expires_at"`
 }
 
 // changesFromDomain переводит изменения доменной модели в документы.
@@ -59,6 +60,25 @@ func changesFromDomain(changes []domain.EventChange) []changeDoc {
 	}
 
 	return docs
+}
+
+// changesToDomain переводит документы изменений обратно в доменную модель.
+func changesToDomain(docs []changeDoc) []domain.EventChange {
+	changes := make([]domain.EventChange, 0, len(docs))
+	for _, doc := range docs {
+		change := domain.EventChange{Kind: doc.Kind, Fields: doc.Fields}
+		if doc.Before != nil {
+			before := doc.Before.toDomain()
+			change.Before = &before
+		}
+		if doc.After != nil {
+			after := doc.After.toDomain()
+			change.After = &after
+		}
+		changes = append(changes, change)
+	}
+
+	return changes
 }
 
 // ChangeRepository хранит изменения расписания в MongoDB.
@@ -134,4 +154,53 @@ func (r *ChangeRepository) Save(ctx context.Context, changes *domain.WeekChanges
 		Int("changes", len(changes.Changes)).Msg("schedule changes saved")
 
 	return nil
+}
+
+// Pending возвращает неразосланные разницы, замеченные не раньше since.
+func (r *ChangeRepository) Pending(ctx context.Context, since time.Time) ([]*domain.WeekChanges, error) {
+	op := logger.NewLogOp(ctx, log, "Pending")
+
+	filter := bson.M{"notified_at": nil, "detected_at": bson.M{"$gte": since}}
+	cur, err := r.coll.Find(ctx, filter, options.Find().SetSort(bson.D{{Key: "detected_at", Value: 1}}))
+	if err != nil {
+		op.Failed(err).Msg("failed to find pending schedule changes")
+		return nil, fmt.Errorf("failed to find pending schedule changes: %w", err)
+	}
+
+	var docs []weekChangesDoc
+	if err := cur.All(ctx, &docs); err != nil {
+		op.Failed(err).Msg("failed to decode pending schedule changes")
+		return nil, fmt.Errorf("failed to decode pending schedule changes: %w", err)
+	}
+
+	out := make([]*domain.WeekChanges, 0, len(docs))
+	for _, doc := range docs {
+		out = append(out, &domain.WeekChanges{
+			ID:         doc.ID.Hex(),
+			Group:      doc.Group,
+			WeekStart:  doc.WeekStart,
+			DetectedAt: doc.DetectedAt,
+			Changes:    changesToDomain(doc.Changes),
+		})
+	}
+
+	return out, nil
+}
+
+// MarkNotified отмечает рассылку разницы. Условие notified_at:null стоит в
+// фильтре, поэтому при нескольких инстансах рассылкой владеет ровно один.
+func (r *ChangeRepository) MarkNotified(ctx context.Context, id string, at time.Time) (bool, error) {
+	oid, err := bson.ObjectIDFromHex(id)
+	if err != nil {
+		return false, fmt.Errorf("invalid schedule change id %q: %w", id, err)
+	}
+
+	res, err := r.coll.UpdateOne(ctx, bson.M{"_id": oid, "notified_at": nil},
+		bson.M{"$set": bson.M{"notified_at": at}})
+	if err != nil {
+		logger.NewLogOp(ctx, log, "MarkNotified").Failed(err).Msg("failed to mark schedule change notified")
+		return false, fmt.Errorf("failed to mark schedule change notified: %w", err)
+	}
+
+	return res.ModifiedCount == 1, nil
 }

@@ -11,7 +11,25 @@ import (
 
 // fakeChanges - подставное хранилище изменений: запоминает записанное.
 type fakeChanges struct {
-	saved []*domain.WeekChanges
+	saved    []*domain.WeekChanges
+	pending  []*domain.WeekChanges
+	notified map[string]bool
+}
+
+func (f *fakeChanges) Pending(context.Context, time.Time) ([]*domain.WeekChanges, error) {
+	return f.pending, nil
+}
+
+// MarkNotified отдаёт отметку один раз, как условный апдейт в Mongo.
+func (f *fakeChanges) MarkNotified(_ context.Context, id string, _ time.Time) (bool, error) {
+	if f.notified == nil {
+		f.notified = map[string]bool{}
+	}
+	if f.notified[id] {
+		return false, nil
+	}
+	f.notified[id] = true
+	return true, nil
 }
 
 func (f *fakeChanges) Save(_ context.Context, changes *domain.WeekChanges) error {
