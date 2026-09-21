@@ -5,3 +5,5 @@
 docker-compose*.yml
 Dockerfile
 README.md
+*-firebase-adminsdk-*.json
+serviceAccount*.json

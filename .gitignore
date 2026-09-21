@@ -27,6 +27,9 @@ go.work.sum
 # env file
 .env
 
+*-firebase-adminsdk-*.json
+serviceAccount*.json
+
 # Editor/IDE
 .idea/
 .vscode/
