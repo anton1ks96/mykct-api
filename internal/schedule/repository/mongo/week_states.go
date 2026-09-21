@@ -270,6 +270,49 @@ func (r *WeekStateRepository) ReplaceBaseline(
 	return res.ModifiedCount == 1, nil
 }
 
+// PendingPublished возвращает недели, опубликованные при нас не раньше since,
+// о которых ещё не уведомляли. Неделям, заведённым baseline, published_at не
+// ставится, поэтому под фильтр они не попадают.
+func (r *WeekStateRepository) PendingPublished(ctx context.Context, since time.Time) ([]*domain.WeekState, error) {
+	op := logger.NewLogOp(ctx, log, "PendingPublished")
+
+	filter := bson.M{"notified_at": nil, "published_at": bson.M{"$gte": since}}
+	cur, err := r.coll.Find(ctx, filter, options.Find().SetProjection(bson.M{"events": 0}))
+	if err != nil {
+		op.Failed(err).Msg("failed to find pending published weeks")
+		return nil, fmt.Errorf("failed to find pending published weeks: %w", err)
+	}
+
+	var docs []weekStateDoc
+	if err := cur.All(ctx, &docs); err != nil {
+		op.Failed(err).Msg("failed to decode pending published weeks")
+		return nil, fmt.Errorf("failed to decode pending published weeks: %w", err)
+	}
+
+	out := make([]*domain.WeekState, 0, len(docs))
+	for i := range docs {
+		out = append(out, docs[i].toDomain())
+	}
+
+	return out, nil
+}
+
+// MarkNotified отмечает рассылку по неделе. Условие notified_at:null стоит в
+// фильтре, поэтому при нескольких инстансах рассылкой владеет ровно один.
+func (r *WeekStateRepository) MarkNotified(ctx context.Context, group, weekStart string, at time.Time) (bool, error) {
+	filter := weekStateFilter(group, weekStart)
+	filter["notified_at"] = nil
+
+	res, err := r.coll.UpdateOne(ctx, filter, bson.M{"$set": bson.M{"notified_at": at}})
+	if err != nil {
+		logger.NewLogOp(ctx, log, "MarkNotified").Failed(err).Str("group", group).
+			Msg("failed to mark week notified")
+		return false, fmt.Errorf("failed to mark week notified: %w", err)
+	}
+
+	return res.ModifiedCount == 1, nil
+}
+
 // weekStateFilter адресует состояние недели группой и понедельником.
 func weekStateFilter(group, weekStart string) bson.M {
 	return bson.M{"group": group, "week_start": weekStart}

@@ -162,6 +162,25 @@ type fakeWeekStates struct {
 	baselineWon  bool
 	baselinePrev string
 	baselineNext string
+	pending      []*domain.WeekState
+	notified     map[string]bool
+}
+
+func (f *fakeWeekStates) PendingPublished(context.Context, time.Time) ([]*domain.WeekState, error) {
+	return f.pending, nil
+}
+
+// MarkNotified отдаёт отметку один раз, как условный апдейт в Mongo.
+func (f *fakeWeekStates) MarkNotified(_ context.Context, group, weekStart string, _ time.Time) (bool, error) {
+	if f.notified == nil {
+		f.notified = map[string]bool{}
+	}
+	key := group + "/" + weekStart
+	if f.notified[key] {
+		return false, nil
+	}
+	f.notified[key] = true
+	return true, nil
 }
 
 func (f *fakeWeekStates) Find(context.Context, string, string) (*domain.WeekState, error) {

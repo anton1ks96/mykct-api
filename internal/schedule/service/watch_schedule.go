@@ -95,6 +95,12 @@ func (s *Service) RunScheduleWatcher(ctx context.Context) {
 			log.Warn().Err(err).Msg("schedule check failed")
 		}
 
+		// Рассылка идёт следом за прогоном, а не в нём: неразосланное прошлых
+		// прогонов тоже подбирается, а сбой FCM не отменяет уже записанные изменения
+		if s.notifier != nil {
+			s.NotifyPending(ctx, time.Now().UTC())
+		}
+
 		if !sleep(ctx, nextTick(time.Now(), s.watch)) {
 			log.Info().Msg("schedule watcher stopped")
 			return

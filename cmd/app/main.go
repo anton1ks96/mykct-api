@@ -10,6 +10,7 @@ import (
 	"sync"
 	"syscall"
 
+	"firebase.google.com/go/v4/messaging"
 	attendancehandler "github.com/anton1ks96/mykct-api/internal/attendance/handler"
 	attendancemongo "github.com/anton1ks96/mykct-api/internal/attendance/repository/mongo"
 	attendanceportal "github.com/anton1ks96/mykct-api/internal/attendance/repository/portal"
@@ -18,6 +19,9 @@ import (
 	authldap "github.com/anton1ks96/mykct-api/internal/auth/repository/ldap"
 	authmongo "github.com/anton1ks96/mykct-api/internal/auth/repository/mongo"
 	authservice "github.com/anton1ks96/mykct-api/internal/auth/service"
+	notificationhandler "github.com/anton1ks96/mykct-api/internal/notification/handler"
+	notificationmongo "github.com/anton1ks96/mykct-api/internal/notification/repository/mongo"
+	notificationservice "github.com/anton1ks96/mykct-api/internal/notification/service"
 	performancehandler "github.com/anton1ks96/mykct-api/internal/performance/handler"
 	performanceportal "github.com/anton1ks96/mykct-api/internal/performance/repository/portal"
 	performanceservice "github.com/anton1ks96/mykct-api/internal/performance/service"
@@ -30,6 +34,7 @@ import (
 	scheduleservice "github.com/anton1ks96/mykct-api/internal/schedule/service"
 	"github.com/anton1ks96/mykct-api/internal/server"
 	"github.com/anton1ks96/mykct-api/pkg/database/mongodb"
+	pkgfirebase "github.com/anton1ks96/mykct-api/pkg/firebase"
 	"github.com/anton1ks96/mykct-api/pkg/logger"
 	pkgsentry "github.com/anton1ks96/mykct-api/pkg/sentry"
 	"github.com/gin-gonic/gin"
@@ -90,6 +95,30 @@ func main() {
 	authSvc := authservice.NewService(authDirectory, authSessions, cfg.Auth)
 	authAPI := authhandler.NewHandler(authSvc, rateLimiter)
 
+	// Модуль уведомлений. Без ключа Firebase устройства регистрируются, но
+	// рассылки нет: notifier остаётся nil, и воркер расписания её не зовёт
+	var fcmClient *messaging.Client
+	if cfg.Push.CredentialsPath != "" {
+		fcmClient, err = pkgfirebase.NewMessagingClient(context.Background(), cfg.Push.CredentialsPath)
+		if err != nil {
+			logger.Fatal().Err(err).Msg("failed to init FCM")
+		}
+		logger.Info().Msg("push notifications enabled")
+	} else {
+		logger.Info().Msg("FCM_CREDENTIALS_PATH not provided, push notifications are disabled")
+	}
+
+	notificationDevices := notificationmongo.NewDeviceRepository(mongoClient, cfg.Mongo.Database)
+	notificationSvc := notificationservice.NewService(notificationDevices, fcmClient)
+	notificationAPI := notificationhandler.NewHandler(notificationSvc, authAPI.Auth())
+
+	// Интерфейс заполняется только живым клиентом: *Service с nil внутри дал
+	// бы непустой интерфейс, и воркер слал бы в выключенную рассылку
+	var scheduleNotifier scheduleservice.Notifier
+	if fcmClient != nil {
+		scheduleNotifier = notificationSvc
+	}
+
 	// Модуль расписания
 	schedulePortal := scheduleportal.NewClient(cfg.Schedule)
 	scheduleSnapshots := schedulemongo.NewSnapshotRepository(mongoClient, cfg.Mongo.Database, cfg.Schedule.CacheTTL)
@@ -97,7 +126,7 @@ func main() {
 	scheduleTracked := schedulemongo.NewTrackedGroupRepository(mongoClient, cfg.Mongo.Database)
 	scheduleChanges := schedulemongo.NewChangeRepository(mongoClient, cfg.Mongo.Database, cfg.Schedule.Watch.StateTTL)
 	scheduleSvc := scheduleservice.NewService(schedulePortal, scheduleSnapshots, scheduleStates,
-		scheduleTracked, scheduleChanges, authSvc, cfg.Schedule.Watch)
+		scheduleTracked, scheduleChanges, authSvc, scheduleNotifier, cfg.Schedule.Watch)
 	scheduleAPI := schedulehandler.NewHandler(scheduleSvc)
 
 	// Модуль посещаемости
@@ -114,12 +143,13 @@ func main() {
 	performanceAPI := performancehandler.NewHandler(performanceSvc, authAPI.Auth())
 
 	if err := mongodb.EnsureAll(context.Background(), authSessions, scheduleSnapshots, scheduleStates, scheduleTracked,
-		scheduleChanges, attendanceLeaderboard); err != nil {
+		scheduleChanges, attendanceLeaderboard, notificationDevices); err != nil {
 		logger.Fatal().Err(err).Msg("failed to ensure MongoDB indexes")
 	}
 
 	// Роутер и сервер
-	r := router.NewRouter(cfg, rateLimiter, authAPI, scheduleAPI, attendanceAPI, performanceAPI)
+	r := router.NewRouter(cfg, rateLimiter, authAPI, scheduleAPI, attendanceAPI, performanceAPI,
+		notificationAPI)
 
 	engine, err := r.InitRoutes()
 	if err != nil {

@@ -23,6 +23,7 @@ type EventChange struct {
 // WeekChanges - разница в расписании недели, зафиксированная одним прогоном
 // воркера. Один документ - одно будущее уведомление.
 type WeekChanges struct {
+	ID         string        // Идентификатор документа, пустой до сохранения
 	Group      string        // Академическая группа
 	WeekStart  string        // Понедельник недели, ГГГГ-ММ-ДД
 	DetectedAt time.Time     // Когда воркер заметил разницу
