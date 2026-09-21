@@ -10,6 +10,7 @@ import (
 
 	"firebase.google.com/go/v4/messaging"
 	"github.com/anton1ks96/mykct-api/internal/notification/domain"
+	"github.com/anton1ks96/mykct-api/pkg/collegetime"
 	"github.com/anton1ks96/mykct-api/pkg/logger"
 )
 
@@ -70,6 +71,27 @@ func (s *Service) UnregisterDevice(ctx context.Context, token string) error {
 	return s.devices.DeleteTokens(ctx, []string{token})
 }
 
+// quietFrom и quietTo - окно по времени колледжа, когда пуш приходит без
+// звука: воркер расписания крутится круглосуточно, а будить группу ночью нельзя
+const (
+	quietFrom = 22
+	quietTo   = 8
+)
+
+// apnsConfig задаёт звук уведомления. Общий notification FCM кладёт в aps.alert,
+// а звук живёт только в самом aps, поэтому без этого блока баннер приходит молча.
+// В тихие часы блок не отправляется вовсе - уведомление остаётся беззвучным.
+func apnsConfig(now time.Time) *messaging.APNSConfig {
+	hour := now.In(collegetime.TZ()).Hour()
+	if hour >= quietFrom || hour < quietTo {
+		return nil
+	}
+
+	return &messaging.APNSConfig{
+		Payload: &messaging.APNSPayload{Aps: &messaging.Aps{Sound: "default"}},
+	}
+}
+
 // NotifyGroup рассылает уведомление всем устройствам группы. Токены, которые
 // FCM назвал мёртвыми, удаляются по ходу.
 func (s *Service) NotifyGroup(ctx context.Context, group, title, body string, data map[string]string) error {
@@ -100,6 +122,7 @@ func (s *Service) NotifyGroup(ctx context.Context, group, title, body string, da
 			Android: &messaging.AndroidConfig{
 				Notification: &messaging.AndroidNotification{ChannelID: AndroidChannelID},
 			},
+			APNS: apnsConfig(time.Now()),
 		})
 		if err != nil {
 			return fmt.Errorf("failed to send push to group %s: %w", group, err)
