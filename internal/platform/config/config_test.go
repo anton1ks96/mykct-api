@@ -49,6 +49,8 @@ func setRequiredEnv(t *testing.T) {
 	t.Helper()
 
 	t.Setenv("MONGO_DATABASE", "mykct")
+	t.Setenv("POSTGRES_PASSWORD", "test-password")
+	t.Setenv("POSTGRES_DB", "mykct")
 	t.Setenv("AUTH_JWT_SIGNING_KEY", "test-signing-key")
 	t.Setenv("AUTH_TEST_MODE", "true")
 	t.Setenv("SCHEDULE_PORTAL_URL", "https://portal.example")

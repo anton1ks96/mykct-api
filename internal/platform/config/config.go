@@ -19,6 +19,10 @@ var DefaultTrustedProxies = []string{"172.16.0.0/12"}
 // minWeekStateTTL - минимальный срок хранения состояния недели: неделя плюс запас.
 const minWeekStateTTL = 8 * 24 * time.Hour
 
+// minCleanupInterval - нижняя граница паузы между прогонами чистки протухшего:
+// страховка от busy loop, как minTick у остальных воркеров.
+const minCleanupInterval = time.Minute
+
 // minAliasSecretLen - минимальная длина секрета псевдонимов. Логины студентов
 // предсказуемы, поэтому короткий секрет перебирается вместе с ними.
 const minAliasSecretLen = 32
@@ -35,6 +39,7 @@ type (
 		Server      ServerConfig
 		Sentry      SentryConfig
 		Mongo       MongoConfig
+		Postgres    PostgresConfig
 		CORS        CORSConfig
 		RateLimit   RateLimitConfig
 		Auth        AuthConfig
@@ -85,6 +90,24 @@ type (
 		MaxPoolSize            uint64
 		MinPoolSize            uint64
 		MaxConnIdleTime        time.Duration
+	}
+
+	// PostgresConfig содержит настройки подключения к PostgreSQL.
+	PostgresConfig struct {
+		Host            string
+		Port            int
+		User            string
+		Password        string
+		DBName          string
+		SSLMode         string
+		ConnectTimeout  time.Duration // Бюджет проверки связи при старте
+		MaxOpenConns    int
+		MaxIdleConns    int
+		ConnMaxLifetime time.Duration
+		ConnMaxIdleTime time.Duration // Сколько живёт простаивающее соединение пула
+		// CleanupInterval - пауза между прогонами чистки протухших строк.
+		// TTL-индексов, как в MongoDB, в PostgreSQL нет
+		CleanupInterval time.Duration
 	}
 
 	// CORSConfig содержит список разрешённых origin.
@@ -247,6 +270,43 @@ func setFromEnv(cfg *Config) error {
 	cfg.Mongo.MaxConnIdleTime, err = getEnvAsDuration("MONGO_MAX_CONN_IDLE_TIME", 5*time.Minute)
 	if err != nil {
 		return fmt.Errorf("invalid MONGO_MAX_CONN_IDLE_TIME: %w", err)
+	}
+
+	// PostgreSQL
+	cfg.Postgres.Host = getEnvOrDefault("POSTGRES_HOST", "localhost")
+	cfg.Postgres.Port = getEnvAsInt("POSTGRES_PORT", 5432)
+	cfg.Postgres.User = getEnvOrDefault("POSTGRES_USER", "postgres")
+	cfg.Postgres.Password, err = getRequiredEnv("POSTGRES_PASSWORD")
+	if err != nil {
+		return err
+	}
+	cfg.Postgres.DBName, err = getRequiredEnv("POSTGRES_DB")
+	if err != nil {
+		return err
+	}
+	cfg.Postgres.SSLMode = getEnvOrDefault("POSTGRES_SSLMODE", "disable")
+	cfg.Postgres.ConnectTimeout, err = getEnvAsDuration("POSTGRES_CONNECT_TIMEOUT", 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("invalid POSTGRES_CONNECT_TIMEOUT: %w", err)
+	}
+	cfg.Postgres.MaxOpenConns = getEnvAsInt("POSTGRES_MAX_OPEN_CONNS", 25)
+	cfg.Postgres.MaxIdleConns = getEnvAsInt("POSTGRES_MAX_IDLE_CONNS", 5)
+	cfg.Postgres.ConnMaxLifetime, err = getEnvAsDuration("POSTGRES_CONN_MAX_LIFETIME", 5*time.Minute)
+	if err != nil {
+		return fmt.Errorf("invalid POSTGRES_CONN_MAX_LIFETIME: %w", err)
+	}
+	cfg.Postgres.ConnMaxIdleTime, err = getEnvAsDuration("POSTGRES_CONN_MAX_IDLE_TIME", 5*time.Minute)
+	if err != nil {
+		return fmt.Errorf("invalid POSTGRES_CONN_MAX_IDLE_TIME: %w", err)
+	}
+	cfg.Postgres.CleanupInterval, err = getEnvAsDuration("POSTGRES_CLEANUP_INTERVAL", time.Hour)
+	if err != nil {
+		return fmt.Errorf("invalid POSTGRES_CLEANUP_INTERVAL: %w", err)
+	}
+	// Нулевой и отрицательный интервал превращают воркер чистки в busy loop:
+	// таймер срабатывает мгновенно, и прогоны идут вплотную друг к другу
+	if cfg.Postgres.CleanupInterval < minCleanupInterval {
+		return fmt.Errorf("POSTGRES_CLEANUP_INTERVAL must be at least %s", minCleanupInterval)
 	}
 
 	// CORS
