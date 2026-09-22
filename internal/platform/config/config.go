@@ -38,7 +38,6 @@ type (
 		Logger      LoggerConfig
 		Server      ServerConfig
 		Sentry      SentryConfig
-		Mongo       MongoConfig
 		Postgres    PostgresConfig
 		CORS        CORSConfig
 		RateLimit   RateLimitConfig
@@ -79,17 +78,6 @@ type (
 		Environment      string
 		TracesSampleRate float64
 		Debug            bool
-	}
-
-	// MongoConfig содержит настройки подключения к MongoDB.
-	MongoConfig struct {
-		URI                    string // Строка подключения целиком
-		Database               string // Имя базы
-		ConnectTimeout         time.Duration
-		ServerSelectionTimeout time.Duration
-		MaxPoolSize            uint64
-		MinPoolSize            uint64
-		MaxConnIdleTime        time.Duration
 	}
 
 	// PostgresConfig содержит настройки подключения к PostgreSQL.
@@ -146,7 +134,7 @@ type (
 	ScheduleConfig struct {
 		PortalURL     string              // Базовый адрес портала: https://students.it-college.ru
 		PortalTimeout time.Duration       // Таймаут запроса к порталу, без него не сработает откат на кэш
-		CacheTTL      time.Duration       // Сколько снимок расписания хранится в MongoDB
+		CacheTTL      time.Duration       // Сколько снимок расписания хранится в базе
 		Watch         ScheduleWatchConfig // Воркер расписания: публикация недели и изменения внутри неё
 	}
 
@@ -158,7 +146,7 @@ type (
 		IdleInterval   time.Duration         // Интервал опроса в остальные дни, он же задержка детекта изменений
 		ActiveDays     map[time.Weekday]bool // Дни частого опроса
 		GroupDelay     time.Duration         // Пауза между группами, чтобы не бить по порталу пачкой
-		StateTTL       time.Duration         // Сколько живёт состояние недели в MongoDB
+		StateTTL       time.Duration         // Сколько живёт состояние недели в базе
 	}
 
 	// AttendanceConfig содержит настройки портала колледжа для посещаемости.
@@ -250,27 +238,6 @@ func setFromEnv(cfg *Config) error {
 	cfg.Sentry.Environment = getEnvOrDefault("SENTRY_ENVIRONMENT", "development")
 	cfg.Sentry.TracesSampleRate = getEnvAsFloat("SENTRY_TRACES_SAMPLE_RATE", 1.0)
 	cfg.Sentry.Debug = getEnvAsBool("SENTRY_DEBUG", false)
-
-	// MongoDB
-	cfg.Mongo.URI = getEnvOrDefault("MONGO_URI", "mongodb://localhost:27017/?directConnection=true")
-	cfg.Mongo.Database, err = getRequiredEnv("MONGO_DATABASE")
-	if err != nil {
-		return err
-	}
-	cfg.Mongo.ConnectTimeout, err = getEnvAsDuration("MONGO_CONNECT_TIMEOUT", 10*time.Second)
-	if err != nil {
-		return fmt.Errorf("invalid MONGO_CONNECT_TIMEOUT: %w", err)
-	}
-	cfg.Mongo.ServerSelectionTimeout, err = getEnvAsDuration("MONGO_SERVER_SELECTION_TIMEOUT", 5*time.Second)
-	if err != nil {
-		return fmt.Errorf("invalid MONGO_SERVER_SELECTION_TIMEOUT: %w", err)
-	}
-	cfg.Mongo.MaxPoolSize = uint64(getEnvAsInt("MONGO_MAX_POOL_SIZE", 100))
-	cfg.Mongo.MinPoolSize = uint64(getEnvAsInt("MONGO_MIN_POOL_SIZE", 0))
-	cfg.Mongo.MaxConnIdleTime, err = getEnvAsDuration("MONGO_MAX_CONN_IDLE_TIME", 5*time.Minute)
-	if err != nil {
-		return fmt.Errorf("invalid MONGO_MAX_CONN_IDLE_TIME: %w", err)
-	}
 
 	// PostgreSQL
 	cfg.Postgres.Host = getEnvOrDefault("POSTGRES_HOST", "localhost")
