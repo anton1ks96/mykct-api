@@ -59,6 +59,7 @@ jobs:
           exec 9>.deploy.lock
           flock -w 900 9
           docker compose pull app
+          docker compose up -d --wait postgres
           docker compose up -d --force-recreate --no-deps app
           docker image prune -f
 

@@ -1,21 +1,22 @@
 services:
-  mongo:
-    container_name: mongo
-    image: mongo:8
+  postgres:
+    container_name: mykct-postgres
+    image: postgres:18
     restart: always
-    command: ["--replSet", "rs0", "--bind_ip_all"]
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     networks:
       - mykct
     volumes:
-      - mongo_data:/data/db
+      - postgres_data:/var/lib/postgresql
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "mongosh --quiet --eval \"try { rs.status().ok } catch(e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}).ok }\"",
-        ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -35,8 +36,11 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_PRETTY: ${LOG_PRETTY:-false}
       HTTP_PORT: ${HTTP_PORT:-8080}
-      MONGO_URI: mongodb://mongo:27017/?directConnection=true
-      MONGO_DATABASE: ${MONGO_DATABASE}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
       SENTRY_DSN: ${SENTRY_DSN}
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-development}
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-1.0}
@@ -46,7 +50,7 @@ services:
     networks:
       - mykct
     depends_on:
-      mongo:
+      postgres:
         condition: service_healthy
 
 networks:
@@ -54,4 +58,4 @@ networks:
     driver: bridge
 
 volumes:
-  mongo_data:
+  postgres_data:
