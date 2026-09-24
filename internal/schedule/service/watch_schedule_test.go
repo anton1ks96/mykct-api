@@ -170,7 +170,7 @@ func (f *fakeWeekStates) PendingPublished(context.Context, time.Time) ([]*domain
 	return f.pending, nil
 }
 
-// MarkNotified отдаёт отметку один раз, как условный апдейт в Mongo.
+// MarkNotified отдаёт отметку один раз, как условный апдейт в базе.
 func (f *fakeWeekStates) MarkNotified(_ context.Context, group, weekStart string, _ time.Time) (bool, error) {
 	if f.notified == nil {
 		f.notified = map[string]bool{}

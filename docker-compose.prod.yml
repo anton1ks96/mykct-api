@@ -1,24 +1,46 @@
 services:
-  mongo:
-    container_name: mongo
-    image: mongo:4.4
+  postgres:
+    container_name: mykct-postgres
+    image: postgres:18
     restart: always
-    command: ["--replSet", "rs0", "--bind_ip_all"]
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.max=5000
+      - -c
+      - pg_stat_statements.track=top
+      - -c
+      - track_activity_query_size=2048
+      - -c
+      - track_io_timing=on
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=4GB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - work_mem=16MB
+    shm_size: 1gb
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     networks:
       - mykct
     volumes:
-      - mongo_data:/data/db
+      - postgres_data:/var/lib/postgresql
     deploy:
       resources:
         limits:
           cpus: "3"
           memory: 6G
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "mongo --quiet --eval \"try { rs.status().ok } catch(e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}).ok }\"",
-        ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -37,7 +59,8 @@ services:
     env_file:
       - .env
     environment:
-      MONGO_URI: mongodb://mongo:27017/?directConnection=true
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
       GOMEMLIMIT: 1600MiB
     ports:
       - "127.0.0.1:${HTTP_PORT:-8080}:8080"
@@ -46,7 +69,7 @@ services:
     networks:
       - mykct
     depends_on:
-      mongo:
+      postgres:
         condition: service_healthy
     deploy:
       resources:
@@ -64,5 +87,5 @@ networks:
     driver: bridge
 
 volumes:
-  mongo_data:
+  postgres_data:
     driver: local

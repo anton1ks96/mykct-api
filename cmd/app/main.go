@@ -12,15 +12,15 @@ import (
 
 	"firebase.google.com/go/v4/messaging"
 	attendancehandler "github.com/anton1ks96/mykct-api/internal/attendance/handler"
-	attendancemongo "github.com/anton1ks96/mykct-api/internal/attendance/repository/mongo"
 	attendanceportal "github.com/anton1ks96/mykct-api/internal/attendance/repository/portal"
+	attendancepg "github.com/anton1ks96/mykct-api/internal/attendance/repository/postgres"
 	attendanceservice "github.com/anton1ks96/mykct-api/internal/attendance/service"
 	authhandler "github.com/anton1ks96/mykct-api/internal/auth/handler"
 	authldap "github.com/anton1ks96/mykct-api/internal/auth/repository/ldap"
-	authmongo "github.com/anton1ks96/mykct-api/internal/auth/repository/mongo"
+	authpg "github.com/anton1ks96/mykct-api/internal/auth/repository/postgres"
 	authservice "github.com/anton1ks96/mykct-api/internal/auth/service"
 	notificationhandler "github.com/anton1ks96/mykct-api/internal/notification/handler"
-	notificationmongo "github.com/anton1ks96/mykct-api/internal/notification/repository/mongo"
+	notificationpg "github.com/anton1ks96/mykct-api/internal/notification/repository/postgres"
 	notificationservice "github.com/anton1ks96/mykct-api/internal/notification/service"
 	performancehandler "github.com/anton1ks96/mykct-api/internal/performance/handler"
 	performanceportal "github.com/anton1ks96/mykct-api/internal/performance/repository/portal"
@@ -29,11 +29,12 @@ import (
 	"github.com/anton1ks96/mykct-api/internal/platform/router"
 	"github.com/anton1ks96/mykct-api/internal/platform/router/middleware"
 	schedulehandler "github.com/anton1ks96/mykct-api/internal/schedule/handler"
-	schedulemongo "github.com/anton1ks96/mykct-api/internal/schedule/repository/mongo"
 	scheduleportal "github.com/anton1ks96/mykct-api/internal/schedule/repository/portal"
+	schedulepg "github.com/anton1ks96/mykct-api/internal/schedule/repository/postgres"
 	scheduleservice "github.com/anton1ks96/mykct-api/internal/schedule/service"
 	"github.com/anton1ks96/mykct-api/internal/server"
-	"github.com/anton1ks96/mykct-api/pkg/database/mongodb"
+	"github.com/anton1ks96/mykct-api/migrations"
+	"github.com/anton1ks96/mykct-api/pkg/database/postgres"
 	pkgfirebase "github.com/anton1ks96/mykct-api/pkg/firebase"
 	"github.com/anton1ks96/mykct-api/pkg/logger"
 	pkgsentry "github.com/anton1ks96/mykct-api/pkg/sentry"
@@ -74,12 +75,16 @@ func main() {
 		logger.Info().Msg("Sentry DSN not provided, running without Sentry")
 	}
 
-	// MongoDB
-	mongoClient, err := mongodb.NewClient(cfg)
+	// PostgreSQL
+	db, err := postgres.NewClient(cfg)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("failed to connect to MongoDB")
+		logger.Fatal().Err(err).Msg("failed to connect to PostgreSQL")
 	}
-	defer mongodb.Close(context.Background(), mongoClient)
+	defer postgres.Close(db)
+
+	if err := postgres.RunMigrations(db, migrations.FS); err != nil {
+		logger.Fatal().Err(err).Msg("failed to run migrations")
+	}
 
 	// Rate limiter
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimit)
@@ -90,7 +95,7 @@ func main() {
 		logger.Warn().Msg("AUTH_TEST_MODE is enabled, LDAP is bypassed with a stub user")
 	}
 
-	authSessions := authmongo.NewSessionRepository(mongoClient, cfg.Mongo.Database)
+	authSessions := authpg.NewSessionRepository(db)
 	authDirectory := authldap.NewDirectory(cfg.LDAP)
 	authSvc := authservice.NewService(authDirectory, authSessions, cfg.Auth)
 	authAPI := authhandler.NewHandler(authSvc, rateLimiter)
@@ -108,7 +113,7 @@ func main() {
 		logger.Info().Msg("FCM_CREDENTIALS_PATH not provided, push notifications are disabled")
 	}
 
-	notificationDevices := notificationmongo.NewDeviceRepository(mongoClient, cfg.Mongo.Database)
+	notificationDevices := notificationpg.NewDeviceRepository(db)
 	notificationSvc := notificationservice.NewService(notificationDevices, fcmClient)
 	notificationAPI := notificationhandler.NewHandler(notificationSvc, authAPI.Auth())
 
@@ -121,17 +126,17 @@ func main() {
 
 	// Модуль расписания
 	schedulePortal := scheduleportal.NewClient(cfg.Schedule)
-	scheduleSnapshots := schedulemongo.NewSnapshotRepository(mongoClient, cfg.Mongo.Database, cfg.Schedule.CacheTTL)
-	scheduleStates := schedulemongo.NewWeekStateRepository(mongoClient, cfg.Mongo.Database, cfg.Schedule.Watch.StateTTL)
-	scheduleTracked := schedulemongo.NewTrackedGroupRepository(mongoClient, cfg.Mongo.Database)
-	scheduleChanges := schedulemongo.NewChangeRepository(mongoClient, cfg.Mongo.Database, cfg.Schedule.Watch.StateTTL)
+	scheduleSnapshots := schedulepg.NewSnapshotRepository(db, cfg.Schedule.CacheTTL)
+	scheduleStates := schedulepg.NewWeekStateRepository(db, cfg.Schedule.Watch.StateTTL)
+	scheduleTracked := schedulepg.NewTrackedGroupRepository(db)
+	scheduleChanges := schedulepg.NewChangeRepository(db, cfg.Schedule.Watch.StateTTL)
 	scheduleSvc := scheduleservice.NewService(schedulePortal, scheduleSnapshots, scheduleStates,
 		scheduleTracked, scheduleChanges, authSvc, scheduleNotifier, cfg.Schedule.Watch)
 	scheduleAPI := schedulehandler.NewHandler(scheduleSvc)
 
 	// Модуль посещаемости
 	attendancePortal := attendanceportal.NewClient(cfg.Attendance)
-	attendanceLeaderboard := attendancemongo.NewLeaderboardRepository(mongoClient, cfg.Mongo.Database)
+	attendanceLeaderboard := attendancepg.NewLeaderboardRepository(db)
 	attendanceSvc := attendanceservice.NewService(attendancePortal, attendanceLeaderboard, authSvc,
 		cfg.Attendance.Leaderboard)
 	attendanceAPI := attendancehandler.NewHandler(attendanceSvc, authAPI.Auth(), rateLimiter,
@@ -141,11 +146,6 @@ func main() {
 	performancePortal := performanceportal.NewClient(cfg.Performance)
 	performanceSvc := performanceservice.NewService(performancePortal)
 	performanceAPI := performancehandler.NewHandler(performanceSvc, authAPI.Auth())
-
-	if err := mongodb.EnsureAll(context.Background(), authSessions, scheduleSnapshots, scheduleStates, scheduleTracked,
-		scheduleChanges, attendanceLeaderboard, notificationDevices); err != nil {
-		logger.Fatal().Err(err).Msg("failed to ensure MongoDB indexes")
-	}
 
 	// Роутер и сервер
 	r := router.NewRouter(cfg, rateLimiter, authAPI, scheduleAPI, attendanceAPI, performanceAPI,
@@ -159,6 +159,13 @@ func main() {
 
 	workerCtx, stopWorkers := context.WithCancel(context.Background())
 	var workers sync.WaitGroup
+
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		postgres.RunCleanup(workerCtx, cfg.Postgres.CleanupInterval,
+			authSessions, scheduleSnapshots, scheduleStates, scheduleChanges)
+	}()
 
 	if cfg.Schedule.Watch.Enabled {
 		workers.Add(1)

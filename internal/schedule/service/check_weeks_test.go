@@ -169,7 +169,7 @@ func TestCheckWeeksSkipsTrackWhenWeekFailed(t *testing.T) {
 	events, _, _ := twoWeekAnswer()
 
 	tracked := &fakeTracked{}
-	states := &fakeWeekStates{findErr: errors.New("mongo is down")}
+	states := &fakeWeekStates{findErr: errors.New("database is down")}
 	svc := watcherService(&fakePortal{events: events}, states, tracked)
 
 	if err := svc.CheckWeeks(context.Background()); err != nil {
