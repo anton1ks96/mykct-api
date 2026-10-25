@@ -19,6 +19,8 @@ const (
 	CodeMethodNotAllowed = "METHOD_NOT_ALLOWED"
 	// CodeRateLimitExceeded - превышен лимит частоты запросов.
 	CodeRateLimitExceeded = "RATE_LIMIT_EXCEEDED"
+	// CodeFeatureDisabled - фича выключена в конфигурации сервиса.
+	CodeFeatureDisabled = "FEATURE_DISABLED"
 )
 
 // APIError - единый конверт ошибок API: машиночитаемый code для логики фронта

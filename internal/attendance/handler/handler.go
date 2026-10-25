@@ -26,6 +26,8 @@ type Handler struct {
 	service     *service.Service
 	auth        gin.HandlerFunc // Middleware модуля auth, кладёт пользователя в контекст
 	rateLimiter *middleware.RateLimiter
+	enabled     bool // Включена ли посещаемость: выключенная отвечает 503
+	streak      bool // Включён ли стрик: выключенный отвечает 503 и на рейтинге
 	leaderboard bool // Включён ли рейтинг: без него маршрута нет вовсе
 }
 
@@ -34,26 +36,31 @@ func NewHandler(
 	svc *service.Service,
 	auth gin.HandlerFunc,
 	rateLimiter *middleware.RateLimiter,
-	leaderboard config.LeaderboardConfig,
+	cfg config.AttendanceConfig,
 ) *Handler {
 	return &Handler{
 		service:     svc,
 		auth:        auth,
 		rateLimiter: rateLimiter,
-		leaderboard: leaderboard.Enabled,
+		enabled:     cfg.Enabled,
+		streak:      cfg.StreakEnabled,
+		leaderboard: cfg.Leaderboard.Enabled,
 	}
 }
 
 // Init регистрирует маршруты модуля в группе /api/mykct/v1. Посещаемость личная:
 // маршруты за аутентификацией, логин студента берётся только из токена.
 func (h *Handler) Init(v1 *gin.RouterGroup) {
+	streakGate := middleware.FeatureGate(h.streak, "Стрик временно отключён")
+
 	attendance := v1.Group("/attendance", h.auth)
 	{
-		attendance.GET("", h.getAttendance)
-		attendance.GET("/streak", h.getStreak)
+		attendance.GET("", middleware.FeatureGate(h.enabled, "Посещаемость временно отключена"),
+			h.getAttendance)
+		attendance.GET("/streak", streakGate, h.getStreak)
 		// Выключенный рейтинг отдаёт штатный 404, а не мёртвый маршрут
 		if h.leaderboard {
-			attendance.GET("/leaderboard",
+			attendance.GET("/leaderboard", streakGate,
 				h.rateLimiter.Limit(leaderboardRate, leaderboardBurst), h.getLeaderboard)
 		}
 	}

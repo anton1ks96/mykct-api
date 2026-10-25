@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/anton1ks96/mykct-api/internal/platform/httpapi"
+	"github.com/anton1ks96/mykct-api/internal/platform/router/middleware"
 	"github.com/anton1ks96/mykct-api/internal/schedule/domain"
 	"github.com/anton1ks96/mykct-api/internal/schedule/service"
 	"github.com/gin-gonic/gin"
@@ -14,22 +15,25 @@ import (
 // Handler обслуживает маршруты расписания.
 type Handler struct {
 	service *service.Service
+	enabled bool // Выключенное расписание отвечает 503 на всех маршрутах
 }
 
 // NewHandler создаёт хендлер модуля расписания.
-func NewHandler(svc *service.Service) *Handler {
-	return &Handler{service: svc}
+func NewHandler(svc *service.Service, enabled bool) *Handler {
+	return &Handler{service: svc, enabled: enabled}
 }
 
 // Init регистрирует маршруты модуля в группе /api/mykct/v1. Пути без
 // аутентификации: мобильные клиенты ходят за расписанием без токена.
 func (h *Handler) Init(v1 *gin.RouterGroup) {
-	schedule := v1.Group("/schedule")
+	gate := middleware.FeatureGate(h.enabled, "Расписание временно отключено")
+
+	schedule := v1.Group("/schedule", gate)
 	{
 		schedule.GET("", h.getSchedule)
 		schedule.GET("/next-week", h.getNextWeekStatus)
 	}
-	v1.GET("/classdetails", h.getClassDetails)
+	v1.GET("/classdetails", gate, h.getClassDetails)
 }
 
 // getNextWeekStatus отдаёт состояние следующей недели: появилось ли расписание

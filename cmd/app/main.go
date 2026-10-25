@@ -132,7 +132,7 @@ func main() {
 	scheduleChanges := schedulepg.NewChangeRepository(db, cfg.Schedule.Watch.StateTTL)
 	scheduleSvc := scheduleservice.NewService(schedulePortal, scheduleSnapshots, scheduleStates,
 		scheduleTracked, scheduleChanges, authSvc, scheduleNotifier, cfg.Schedule.Watch)
-	scheduleAPI := schedulehandler.NewHandler(scheduleSvc)
+	scheduleAPI := schedulehandler.NewHandler(scheduleSvc, cfg.Schedule.Enabled)
 
 	// Модуль посещаемости
 	attendancePortal := attendanceportal.NewClient(cfg.Attendance)
@@ -140,7 +140,7 @@ func main() {
 	attendanceSvc := attendanceservice.NewService(attendancePortal, attendanceLeaderboard, authSvc,
 		cfg.Attendance.Leaderboard)
 	attendanceAPI := attendancehandler.NewHandler(attendanceSvc, authAPI.Auth(), rateLimiter,
-		cfg.Attendance.Leaderboard)
+		cfg.Attendance)
 
 	// Модуль успеваемости
 	performancePortal := performanceportal.NewClient(cfg.Performance)
@@ -167,7 +167,8 @@ func main() {
 			authSessions, scheduleSnapshots, scheduleStates, scheduleChanges)
 	}()
 
-	if cfg.Schedule.Watch.Enabled {
+	// Воркеры гаснут вместе с фичей: ходить на портал ради выключенного незачем
+	if cfg.Schedule.Enabled && cfg.Schedule.Watch.Enabled {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
@@ -177,7 +178,7 @@ func main() {
 		logger.Info().Msg("schedule watcher is disabled")
 	}
 
-	if cfg.Attendance.Leaderboard.Enabled {
+	if cfg.Attendance.StreakEnabled && cfg.Attendance.Leaderboard.Enabled {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
