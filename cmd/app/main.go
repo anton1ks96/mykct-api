@@ -145,7 +145,7 @@ func main() {
 	// Модуль успеваемости
 	performancePortal := performanceportal.NewClient(cfg.Performance)
 	performanceSvc := performanceservice.NewService(performancePortal)
-	performanceAPI := performancehandler.NewHandler(performanceSvc, authAPI.Auth())
+	performanceAPI := performancehandler.NewHandler(performanceSvc, authAPI.Auth(), cfg.Performance.Enabled)
 
 	// Роутер и сервер
 	r := router.NewRouter(cfg, rateLimiter, authAPI, scheduleAPI, attendanceAPI, performanceAPI,

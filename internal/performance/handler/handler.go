@@ -6,6 +6,7 @@ import (
 
 	"github.com/anton1ks96/mykct-api/internal/auth/authctx"
 	"github.com/anton1ks96/mykct-api/internal/performance/service"
+	"github.com/anton1ks96/mykct-api/internal/platform/router/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -13,17 +14,19 @@ import (
 type Handler struct {
 	service *service.Service
 	auth    gin.HandlerFunc // Middleware модуля auth, кладёт пользователя в контекст
+	enabled bool            // Выключенная успеваемость отвечает 503 на всех маршрутах
 }
 
 // NewHandler создаёт хендлер модуля успеваемости с middleware аутентификации.
-func NewHandler(svc *service.Service, auth gin.HandlerFunc) *Handler {
-	return &Handler{service: svc, auth: auth}
+func NewHandler(svc *service.Service, auth gin.HandlerFunc, enabled bool) *Handler {
+	return &Handler{service: svc, auth: auth, enabled: enabled}
 }
 
 // Init регистрирует маршруты модуля в группе /api/mykct/v1. Успеваемость личная:
 // маршруты за аутентификацией, логин студента берётся только из токена.
 func (h *Handler) Init(v1 *gin.RouterGroup) {
-	performance := v1.Group("/performance", h.auth)
+	performance := v1.Group("/performance", h.auth,
+		middleware.FeatureGate(h.enabled, "Успеваемость временно отключена"))
 	{
 		performance.GET("/subjects", h.getSubjects)
 		performance.POST("/score", h.getScore)

@@ -179,6 +179,7 @@ type (
 
 	// PerformanceConfig содержит настройки портала колледжа для успеваемости.
 	PerformanceConfig struct {
+		Enabled       bool          // Включена ли успеваемость: выключенная отвечает 503
 		PortalURL     string        // Базовый адрес портала: https://students.it-college.ru
 		PortalTimeout time.Duration // Таймаут запроса к порталу
 	}
@@ -438,6 +439,7 @@ func setFromEnv(cfg *Config) error {
 	}
 
 	// Успеваемость
+	cfg.Performance.Enabled = getEnvAsBool("PERFORMANCE_ENABLED", true)
 	cfg.Performance.PortalURL, err = getRequiredEnv("PERFORMANCE_PORTAL_URL")
 	if err != nil {
 		return err
