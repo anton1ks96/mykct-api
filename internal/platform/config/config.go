@@ -132,6 +132,7 @@ type (
 
 	// ScheduleConfig содержит настройки портала колледжа и кэша расписания.
 	ScheduleConfig struct {
+		Enabled       bool                // Включено ли расписание: выключенное отвечает 503 и гасит воркер
 		PortalURL     string              // Базовый адрес портала: https://students.it-college.ru
 		PortalTimeout time.Duration       // Таймаут запроса к порталу, без него не сработает откат на кэш
 		CacheTTL      time.Duration       // Сколько снимок расписания хранится в базе
@@ -151,6 +152,8 @@ type (
 
 	// AttendanceConfig содержит настройки портала колледжа для посещаемости.
 	AttendanceConfig struct {
+		Enabled       bool              // Включена ли посещаемость: выключенная отвечает 503
+		StreakEnabled bool              // Включён ли стрик вместе с рейтингом, который на нём строится
 		PortalURL     string            // Базовый адрес портала: https://students.it-college.ru
 		PortalTimeout time.Duration     // Таймаут запроса к порталу
 		Leaderboard   LeaderboardConfig // Анонимный рейтинг по серии посещений
@@ -316,6 +319,7 @@ func setFromEnv(cfg *Config) error {
 	}
 
 	// Расписание
+	cfg.Schedule.Enabled = getEnvAsBool("SCHEDULE_ENABLED", true)
 	cfg.Schedule.PortalURL, err = getRequiredEnv("SCHEDULE_PORTAL_URL")
 	if err != nil {
 		return err
@@ -363,6 +367,8 @@ func setFromEnv(cfg *Config) error {
 	}
 
 	// Посещаемость
+	cfg.Attendance.Enabled = getEnvAsBool("ATTENDANCE_ENABLED", true)
+	cfg.Attendance.StreakEnabled = getEnvAsBool("ATTENDANCE_STREAK_ENABLED", true)
 	cfg.Attendance.PortalURL, err = getRequiredEnv("ATTENDANCE_PORTAL_URL")
 	if err != nil {
 		return err
